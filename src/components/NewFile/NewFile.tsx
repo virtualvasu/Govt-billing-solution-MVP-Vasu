@@ -1,56 +1,158 @@
 import React, { useState } from "react";
 import * as AppGeneral from "../socialcalc/index.js";
 import { File, Local } from "../Storage/LocalStorage";
-import { DATA } from "../../app-data.js";
-import { IonAlert, IonIcon } from "@ionic/react";
-import { add } from "ionicons/icons";
+import { DATA } from "../../app-data";
+import { IonAlert, IonIcon, IonToast } from "@ionic/react";
+import { add, addCircle, addOutline, documentText } from "ionicons/icons";
+import { useTheme } from "../../contexts/ThemeContext";
+import { useInvoice } from "../../contexts/InvoiceContext";
+import { addIcons } from "ionicons";
+import {
+  isDefaultFileEmpty,
+  generateUntitledFilename,
+} from "../../utils/helper";
 
 const NewFile: React.FC<{
-  file: string;
-  updateSelectedFile: Function;
-  store: Local;
-  billType: number;
-}> = (props) => {
-  const [showAlertNewFileCreated, setShowAlertNewFileCreated] = useState(false);
-  const newFile = () => {
-    if (props.file !== "default") {
-      const content = encodeURIComponent(AppGeneral.getSpreadsheetContent());
-      const data = props.store._getFile(props.file);
-      const file = new File(
-        (data as any).created,
-        new Date().toString(),
-        content,
-        props.file,
-        props.billType
-      );
-      props.store._saveFile(file);
-      props.updateSelectedFile(props.file);
+  handleDefaultFileSwitch?: () => Promise<void>;
+}> = ({ handleDefaultFileSwitch }) => {
+  const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
+  const [showNewInvoiceAlert, setShowNewInvoiceAlert] = useState(false);
+  const [showUnsavedChangesAlert, setShowUnsavedChangesAlert] = useState(false);
+  const { isDarkMode } = useTheme();
+  const [device] = useState(AppGeneral.getDeviceType());
+  const { selectedFile, billType, store, updateSelectedFile, resetToDefaults } =
+    useInvoice();
+
+  const handleNewFileClick = async () => {
+    try {
+      // Check if the default file has unsaved changes
+      const currentSpreadsheetContent = AppGeneral.getSpreadsheetContent();
+      console.log("Checking default file for unsaved changes...");
+
+      // Only check if we're currently on the default file
+      if (selectedFile === "default") {
+        const isEmpty = isDefaultFileEmpty(currentSpreadsheetContent);
+        console.log("Default file empty:", isEmpty);
+
+        if (!isEmpty) {
+          // Default file has unsaved changes, show confirmation dialog
+          setShowUnsavedChangesAlert(true);
+          return;
+        }
+      }
+
+      // No unsaved changes, proceed directly
+      setShowNewInvoiceAlert(true);
+    } catch (error) {
+      console.error("Error checking for unsaved changes:", error);
+      // On error, proceed with normal flow
+      setShowNewInvoiceAlert(true);
     }
-    const msc = DATA["home"][AppGeneral.getDeviceType()]["msc"];
-    AppGeneral.viewFile("default", JSON.stringify(msc));
-    props.updateSelectedFile("default");
-    setShowAlertNewFileCreated(true);
+  };
+
+  const createNewFile = async () => {
+    try {
+      // Set selected file to "default" first
+      updateSelectedFile("default");
+
+      const msc = DATA["home"][device]["msc"];
+
+      // Reset to defaults and clear the default file
+      resetToDefaults();
+
+      setTimeout(() => {
+        AppGeneral.viewFile("default", JSON.stringify(msc));
+      }, 100);
+
+      setToastMessage("New invoice created");
+      setShowToast(true);
+    } catch (error) {
+      console.error("Error creating new file:", error);
+      setToastMessage("Error creating new invoice");
+      setShowToast(true);
+    }
+  };
+
+  const handleDiscardAndCreateNew = async () => {
+    try {
+      // User confirmed to discard changes, proceed with creating new file
+      await createNewFile();
+      setShowUnsavedChangesAlert(false);
+    } catch (error) {
+      console.error("Error discarding and creating new file:", error);
+      setToastMessage("Error creating new invoice");
+      setShowToast(true);
+      setShowUnsavedChangesAlert(false);
+    }
   };
 
   return (
     <React.Fragment>
       <IonIcon
-        icon={add}
+        icon={addCircle}
         slot="end"
-        className="ion-padding-end"
+        className="new-file-icon"
         size="large"
-        onClick={() => {
-          newFile();
-          // console.log("New file clicked");
-        }}
+        data-testid="new-file-btn"
+        onClick={handleNewFileClick}
+        title="Create New File"
       />
+
+      {/* Unsaved Changes Confirmation Alert */}
       <IonAlert
-        animated
-        isOpen={showAlertNewFileCreated}
-        onDidDismiss={() => setShowAlertNewFileCreated(false)}
-        header="Alert Message"
-        message={"New file created!"}
-        buttons={["Ok"]}
+        isOpen={showUnsavedChangesAlert}
+        onDidDismiss={() => setShowUnsavedChangesAlert(false)}
+        header="⚠️ Unsaved Changes"
+        message="The default file has unsaved changes. Creating a new file will discard these changes. Do you want to continue?"
+        buttons={[
+          {
+            text: "Cancel",
+            role: "cancel",
+            handler: () => {
+              setShowUnsavedChangesAlert(false);
+            },
+          },
+          {
+            text: "Discard & Create New",
+            handler: async () => {
+              await handleDiscardAndCreateNew();
+            },
+          },
+        ]}
+      />
+
+      {/* New Invoice Confirmation Alert */}
+      <IonAlert
+        isOpen={showNewInvoiceAlert}
+        onDidDismiss={() => setShowNewInvoiceAlert(false)}
+        header="📄 Create New Invoice"
+        message="Do you want to create a new invoice? Make sure you have saved your currently working invoice."
+        buttons={[
+          {
+            text: "Cancel",
+            role: "cancel",
+            handler: () => {
+              setShowNewInvoiceAlert(false);
+            },
+          },
+          {
+            text: "Create New",
+            handler: async () => {
+              await createNewFile();
+              setShowNewInvoiceAlert(false);
+            },
+          },
+        ]}
+      />
+
+      <IonToast
+        isOpen={showToast}
+        onDidDismiss={() => setShowToast(false)}
+        message={toastMessage}
+        duration={3000}
+        color={toastMessage.includes("successfully") ? "success" : "warning"}
+        position="top"
       />
     </React.Fragment>
   );

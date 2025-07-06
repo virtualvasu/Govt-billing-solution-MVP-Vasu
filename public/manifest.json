@@ -1,6 +1,6 @@
 {
-  "short_name": "Ionic App",
-  "name": "My Ionic App",
+  "short_name": "Invoice App",
+  "name": "Govt Invoice Billing App",
   "icons": [
     {
       "src": "pwa-64x64.png",

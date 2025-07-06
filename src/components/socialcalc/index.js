@@ -1,5 +1,5 @@
 const SocialCalc = require("./aspiring/SocialCalc.js");
-
+// require("./autosave.js");
 export function getDeviceType() {
   /* Returns the type of the device */
   var device = "default";
@@ -499,4 +499,101 @@ export function executeCommand(cmdline) {
   //alert('control are'+control);
   var editor = control.workbook.spreadsheet.editor;
   editor.EditorScheduleSheetCommands(cmdline, true, false);
+}
+
+// Listening to CHANGES::
+
+export function setupCellChangeListener(callback) {
+  var control = SocialCalc.GetCurrentWorkBookControl();
+
+  // Add safety check
+  if (!control || !control.workbook || !control.workbook.spreadsheet) {
+    console.warn("Spreadsheet not initialized yet. Retrying in 100ms...");
+    setTimeout(() => setupCellChangeListener(callback), 100);
+    return () => {}; // Return empty cleanup function
+  }
+
+  var editor = control.workbook.spreadsheet.editor;
+
+  // Store original save edit method
+  var originalSaveEdit = SocialCalc.EditorSaveEdit;
+
+  SocialCalc.EditorSaveEdit = function (editor, text) {
+    var coord = editor.ecell.coord;
+    var oldValue = SocialCalc.GetCellContents(editor.context.sheetobj, coord);
+
+    // Call original method
+    var result = originalSaveEdit.call(this, editor, text);
+
+    // Trigger callback if value changed
+    if (callback && oldValue !== text) {
+      var currentControl = SocialCalc.GetCurrentWorkBookControl();
+      if (currentControl && currentControl.currentSheetButton) {
+        callback({
+          coord: coord,
+          oldValue: oldValue,
+          newValue: text,
+          timestamp: new Date(),
+          sheetId: currentControl.currentSheetButton.id,
+        });
+      }
+    }
+
+    return result;
+  };
+
+  // Return cleanup function that restores original method
+  return function cleanup() {
+    SocialCalc.EditorSaveEdit = originalSaveEdit;
+  };
+}
+
+export function getAllSheetsData() {
+  var control = SocialCalc.GetCurrentWorkBookControl();
+  if (!control || !control.workbook || !control.sheetButtonArr) {
+    return [];
+  }
+
+  var sheetsData = [];
+  var currentSheetId = control.currentSheetButton
+    ? control.currentSheetButton.id
+    : null;
+
+  // Get all sheet names
+  for (var sheetId in control.sheetButtonArr) {
+    // Temporarily switch to each sheet to get its HTML content
+    SocialCalc.WorkBookControlActivateSheet(sheetId);
+
+    var htmlContent = control.workbook.spreadsheet.CreateSheetHTML();
+
+    sheetsData.push({
+      id: sheetId,
+      name: sheetId.replace("sheet", "Sheet "), // Convert 'sheet1' to 'Sheet 1'
+      htmlContent: htmlContent,
+    });
+  }
+
+  // Switch back to the original sheet if it existed
+  if (currentSheetId) {
+    SocialCalc.WorkBookControlActivateSheet(currentSheetId);
+  }
+
+  return sheetsData;
+}
+
+export function getWorkbookInfo() {
+  var control = SocialCalc.GetCurrentWorkBookControl();
+  if (!control || !control.sheetButtonArr) {
+    return { numsheets: 0, sheets: [] };
+  }
+
+  var sheets = [];
+  for (var sheetId in control.sheetButtonArr) {
+    sheets.push(sheetId);
+  }
+
+  return {
+    numsheets: sheets.length,
+    sheets: sheets,
+  };
 }
