@@ -9,6 +9,20 @@ import {
   IonButtons,
   IonToast,
   IonAlert,
+  IonPopover,
+  IonList,
+  IonItem,
+  IonLabel,
+  IonInput,
+  IonItemDivider,
+  IonModal,
+  IonGrid,
+  IonRow,
+  IonCol,
+  IonCard,
+  IonCardContent,
+  IonSegment,
+  IonSegmentButton,
 } from "@ionic/react";
 import { APP_NAME, DATA } from "../app-data";
 import * as AppGeneral from "../components/socialcalc/index.js";
@@ -22,6 +36,9 @@ import {
   syncOutline,
   arrowUndo,
   arrowRedo,
+  colorPaletteOutline,
+  closeOutline,
+  textOutline,
 } from "ionicons/icons";
 import "./Home.css";
 import NewFile from "../components/NewFile/NewFile";
@@ -47,6 +64,27 @@ const Home: React.FC = () => {
   const [saveAsFileName, setSaveAsFileName] = useState("");
   const [saveAsOperation, setSaveAsOperation] = useState<"local" | null>(null);
 
+  // Color picker state
+  const [showColorModal, setShowColorModal] = useState(false);
+  const [colorMode, setColorMode] = useState<"background" | "font">(
+    "background"
+  );
+  const [customColorInput, setCustomColorInput] = useState("");
+  const [activeBackgroundColor, setActiveBackgroundColor] = useState("#f4f5f8");
+  const [activeFontColor, setActiveFontColor] = useState("#000000");
+
+  // Available colors for sheet themes
+  const availableColors = [
+    { name: "red", label: "Red", color: "#ff4444" },
+    { name: "blue", label: "Blue", color: "#3880ff" },
+    { name: "green", label: "Green", color: "#2dd36f" },
+    { name: "yellow", label: "Yellow", color: "#ffc409" },
+    { name: "purple", label: "Purple", color: "#6f58d8" },
+    { name: "black", label: "Black", color: "#000000" },
+    { name: "white", label: "White", color: "#ffffff" },
+    { name: "default", label: "Default", color: "#f4f5f8" },
+  ];
+
   // Helper function to handle default file logic when switching files
   const handleDefaultFileSwitch = async (): Promise<void> => {
     if (selectedFile === "default") {
@@ -66,9 +104,10 @@ const Home: React.FC = () => {
           const untitledName = await generateUntitledFilename(store);
           const encodedContent = encodeURIComponent(currentContent);
 
+          const now = new Date().toISOString();
           const untitledFile = new File(
-            new Date().toString(),
-            new Date().toString(),
+            now,
+            now,
             encodedContent,
             untitledName,
             billType
@@ -92,9 +131,10 @@ const Home: React.FC = () => {
         const templateContent = encodeURIComponent(
           JSON.stringify(templateData)
         );
+        const now2 = new Date().toISOString();
         const defaultFile = new File(
-          new Date().toString(),
-          new Date().toString(),
+          now2,
+          now2,
           templateContent,
           "default",
           1 // Reset to default bill type
@@ -114,6 +154,82 @@ const Home: React.FC = () => {
     AppGeneral.activateFooterButton(footer);
   };
 
+  const handleColorChange = (colorName: string) => {
+    try {
+      // Get the actual color value (hex) for the color name
+      const selectedColor = availableColors.find((c) => c.name === colorName);
+      const colorValue = selectedColor ? selectedColor.color : colorName;
+
+      if (colorMode === "background") {
+        AppGeneral.changeSheetBackgroundColor(colorName);
+        setActiveBackgroundColor(colorValue);
+        setToastMessage(`Sheet background color changed to ${colorName}`);
+      } else {
+        AppGeneral.changeSheetFontColor(colorName);
+        setActiveFontColor(colorValue);
+        setToastMessage(`Sheet font color changed to ${colorName}`);
+
+        // Additional CSS override for dark mode font color
+        setTimeout(() => {
+          const spreadsheetContainer = document.getElementById("tableeditor");
+          if (spreadsheetContainer && isDarkMode) {
+            // Force font color in dark mode by adding CSS override
+            const style = document.createElement("style");
+            style.id = "dark-mode-font-override";
+            // Remove existing override if any
+            const existingStyle = document.getElementById(
+              "dark-mode-font-override"
+            );
+            if (existingStyle) {
+              existingStyle.remove();
+            }
+            style.innerHTML = `
+              .dark-theme #tableeditor * {
+                color: ${colorValue} !important;
+              }
+              .dark-theme #tableeditor td,
+              .dark-theme #tableeditor .defaultCell,
+              .dark-theme #tableeditor .cell {
+                color: ${colorValue} !important;
+              }
+            `;
+            document.head.appendChild(style);
+          }
+        }, 100);
+      }
+      setShowColorModal(false);
+      setToastColor("success");
+      setShowToast(true);
+    } catch (error) {
+      console.error("Error changing sheet color:", error);
+      setToastMessage("Failed to change sheet color");
+      setToastColor("danger");
+      setShowToast(true);
+    }
+  };
+
+  const handleCustomColorApply = () => {
+    const hexColor = customColorInput.trim();
+    if (hexColor && /^#?[0-9A-Fa-f]{6}$/.test(hexColor)) {
+      const formattedColor = hexColor.startsWith("#")
+        ? hexColor
+        : `#${hexColor}`;
+      handleColorChange(formattedColor);
+      setCustomColorInput("");
+    } else {
+      setToastMessage(
+        "Please enter a valid hex color (e.g., #FF0000 or FF0000)"
+      );
+      setToastColor("warning");
+      setShowToast(true);
+    }
+  };
+
+  const openColorModal = (mode: "background" | "font") => {
+    setColorMode(mode);
+    setShowColorModal(true);
+  };
+
   const executeSaveAsWithFilename = async (filename: string) => {
     updateSelectedFile(filename);
 
@@ -126,13 +242,8 @@ const Home: React.FC = () => {
   const performLocalSave = async (fileName: string) => {
     try {
       const content = encodeURIComponent(AppGeneral.getSpreadsheetContent());
-      const file = new File(
-        new Date().toString(),
-        new Date().toString(),
-        content,
-        fileName,
-        billType
-      );
+      const now = new Date().toISOString();
+      const file = new File(now, now, content, fileName, billType);
       await store._saveFile(file);
 
       setToastMessage(`File "${fileName}" saved locally!`);
@@ -164,13 +275,8 @@ const Home: React.FC = () => {
 
           // Save the initial template as the default file
           const initialContent = encodeURIComponent(JSON.stringify(data));
-          const file = new File(
-            new Date().toString(),
-            new Date().toString(),
-            initialContent,
-            "default",
-            billType
-          );
+          const now = new Date().toISOString();
+          const file = new File(now, now, initialContent, "default", billType);
           await store._saveFile(file);
           console.log("Created and saved new default file");
         }
@@ -179,6 +285,7 @@ const Home: React.FC = () => {
         // Fallback to template initialization
         const data = DATA["home"][device]["msc"];
         AppGeneral.initializeApp(JSON.stringify(data));
+        AppGeneral.changeSheetColor("#000000");
       }
     };
 
@@ -195,13 +302,8 @@ const Home: React.FC = () => {
 
     if (selectedFile === "default") {
       // Autosave the default file to local storage
-      const file = new File(
-        new Date().toString(),
-        new Date().toString(),
-        content,
-        "default",
-        billType
-      );
+      const now = new Date().toISOString();
+      const file = new File(now, now, content, "default", billType);
       await store._saveFile(file);
       return;
     }
@@ -209,8 +311,8 @@ const Home: React.FC = () => {
     // For named files, get existing metadata and update
     const data = await store._getFile(selectedFile);
     const file = new File(
-      (data as any)?.created || new Date().toString(),
-      new Date().toString(),
+      (data as any)?.created || new Date().toISOString(),
+      new Date().toISOString(),
       content,
       selectedFile,
       billType
@@ -246,6 +348,41 @@ const Home: React.FC = () => {
   useEffect(() => {
     activateFooter(billType);
   }, [billType]);
+
+  // Effect to handle font color in dark mode
+  useEffect(() => {
+    if (isDarkMode && activeFontColor !== "#000000") {
+      // Reapply font color when switching to dark mode
+      setTimeout(() => {
+        const style = document.createElement("style");
+        style.id = "dark-mode-font-override";
+        // Remove existing override if any
+        const existingStyle = document.getElementById(
+          "dark-mode-font-override"
+        );
+        if (existingStyle) {
+          existingStyle.remove();
+        }
+        style.innerHTML = `
+          .dark-theme #tableeditor * {
+            color: ${activeFontColor} !important;
+          }
+          .dark-theme #tableeditor td,
+          .dark-theme #tableeditor .defaultCell,
+          .dark-theme #tableeditor .cell {
+            color: ${activeFontColor} !important;
+          }
+        `;
+        document.head.appendChild(style);
+      }, 100);
+    } else if (!isDarkMode) {
+      // Remove dark mode font override when switching to light mode
+      const existingStyle = document.getElementById("dark-mode-font-override");
+      if (existingStyle) {
+        existingStyle.remove();
+      }
+    }
+  }, [isDarkMode, activeFontColor]);
 
   const footers = DATA["home"][device]["footers"];
   const footersList = footers.map((footerArray) => {
@@ -327,6 +464,19 @@ const Home: React.FC = () => {
               icon={arrowRedo}
               size="large"
               onClick={() => AppGeneral.redo()}
+              style={{ cursor: "pointer", marginRight: "12px" }}
+            />
+            <IonIcon
+              icon={textOutline}
+              size="large"
+              onClick={() => AppGeneral.toggleCellFormatting()}
+              style={{ cursor: "pointer", marginRight: "12px" }}
+              title="Format Current Cell"
+            />
+            <IonIcon
+              icon={colorPaletteOutline}
+              size="large"
+              onClick={() => openColorModal("background")}
               style={{ cursor: "pointer", marginRight: "12px" }}
             />
             <div style={{ marginRight: "12px" }}>
@@ -428,6 +578,146 @@ const Home: React.FC = () => {
             },
           ]}
         />
+
+        {/* Color Picker Modal */}
+        <IonModal
+          className="color-picker-modal"
+          isOpen={showColorModal}
+          onDidDismiss={() => {
+            setShowColorModal(false);
+            setCustomColorInput("");
+          }}
+        >
+          <IonHeader>
+            <IonToolbar>
+              <IonTitle>Change Sheet Color</IonTitle>
+              <IonButtons slot="end">
+                <IonButton
+                  className="close-button"
+                  onClick={() => setShowColorModal(false)}
+                  fill="clear"
+                >
+                  <IonIcon icon={closeOutline} />
+                </IonButton>
+              </IonButtons>
+            </IonToolbar>
+          </IonHeader>
+          <IonContent>
+            {/* Tab Segments */}
+            <IonSegment
+              value={colorMode}
+              onIonChange={(e) =>
+                setColorMode(e.detail.value as "background" | "font")
+              }
+            >
+              <IonSegmentButton value="background">
+                <div
+                  style={{ display: "flex", alignItems: "center", gap: "8px" }}
+                >
+                  <div
+                    style={{
+                      width: "20px",
+                      height: "20px",
+                      backgroundColor: activeBackgroundColor,
+                      borderRadius: "50%",
+                      border: "2px solid #ccc",
+                    }}
+                  />
+                  <IonLabel>Background Color</IonLabel>
+                </div>
+              </IonSegmentButton>
+              <IonSegmentButton value="font">
+                <div
+                  style={{ display: "flex", alignItems: "center", gap: "8px" }}
+                >
+                  <div
+                    style={{
+                      width: "20px",
+                      height: "20px",
+                      backgroundColor: activeFontColor,
+                      borderRadius: "50%",
+                      border: "2px solid #ccc",
+                    }}
+                  />
+                  <IonLabel>Font Color</IonLabel>
+                </div>
+              </IonSegmentButton>
+            </IonSegment>
+
+            <IonItemDivider>
+              <IonLabel>
+                {colorMode === "background"
+                  ? "Background Colors"
+                  : "Font Colors"}
+              </IonLabel>
+            </IonItemDivider>
+
+            <IonGrid>
+              <IonRow>
+                {availableColors.map((color) => (
+                  <IonCol size="3" size-md="2" key={color.name}>
+                    <div
+                      className="color-swatch"
+                      onClick={() => handleColorChange(color.name)}
+                      style={{
+                        width: "60px",
+                        height: "60px",
+                        backgroundColor: color.color,
+                        borderRadius: "12px",
+                        margin: "8px auto",
+                        border:
+                          (colorMode === "background" &&
+                            activeBackgroundColor === color.color) ||
+                          (colorMode === "font" &&
+                            activeFontColor === color.color)
+                            ? "3px solid #3880ff"
+                            : "2px solid #ccc",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+                      }}
+                    />
+                    <p
+                      style={{
+                        textAlign: "center",
+                        fontSize: "12px",
+                        margin: "4px 0",
+                        fontWeight: "500",
+                      }}
+                    >
+                      {color.label}
+                    </p>
+                  </IonCol>
+                ))}
+              </IonRow>
+            </IonGrid>
+
+            <IonItemDivider>
+              <IonLabel>Custom Hex Color</IonLabel>
+            </IonItemDivider>
+
+            <div style={{ padding: "16px" }}>
+              <IonInput
+                fill="outline"
+                value={customColorInput}
+                placeholder="Enter hex color (e.g., #FF0000)"
+                onIonInput={(e) => setCustomColorInput(e.detail.value!)}
+                maxlength={7}
+                style={{ marginBottom: "16px" }}
+              />
+              <IonButton
+                expand="block"
+                onClick={handleCustomColorApply}
+                disabled={!customColorInput.trim()}
+              >
+                Apply Custom Color
+              </IonButton>
+            </div>
+          </IonContent>
+        </IonModal>
+
         <Menu showM={showMenu} setM={() => setShowMenu(false)} />
       </IonContent>
     </IonPage>

@@ -132,11 +132,23 @@
   --padding-bottom: 6px;
   --min-height: 48px;
   cursor: pointer;
-  transition: background-color 0.2s ease;
+  transition: all 0.3s ease, background-color 0.3s ease, transform 0.3s ease,
+    box-shadow 0.3s ease !important;
+  --background: transparent;
+  background-color: transparent;
+}
+
+.mobile-file-item:hover {
+  --background: rgba(0, 0, 0, 0.08) !important;
+  background-color: rgba(0, 0, 0, 0.08) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .mobile-file-item:active {
-  --background: rgba(var(--ion-color-primary-rgb), 0.1);
+  --background: rgba(var(--ion-color-primary-rgb), 0.1) !important;
+  background-color: rgba(var(--ion-color-primary-rgb), 0.1) !important;
+  transform: translateY(0);
 }
 
 /* Compact label styling for mobile */
@@ -317,18 +329,26 @@
   --color: #f0f6fc !important;
   --border-color: #30363d !important;
   background: #21262d !important;
+  background-color: #21262d !important;
   color: #f0f6fc !important;
   border-bottom: 1px solid #30363d !important;
+  transition: all 0.3s ease, background-color 0.3s ease, transform 0.3s ease,
+    box-shadow 0.3s ease !important;
 }
 
 .dark-theme ion-item:hover,
 .dark-theme .mobile-file-item:hover {
   --background: #30363d !important;
   background: #30363d !important;
+  background-color: #30363d !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 .dark-theme .mobile-file-item:active {
   --background: rgba(88, 166, 255, 0.1) !important;
+  background-color: rgba(88, 166, 255, 0.1) !important;
+  transform: translateY(0);
 }
 
 .dark-theme ion-label,

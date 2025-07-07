@@ -9424,3 +9424,32 @@ export let DATA = {
     },
   },
 };
+
+export const LOGO = {
+  iPad: {
+    sheet1: "F4",
+    sheet2: "F4",
+    sheet3: "F4",
+    sheet4: "F4",
+  },
+  iPhone: {
+    sheet1: "F5",
+    sheet2: "F7",
+    sheet3: "F8",
+    sheet4: null,
+    sheet5: null,
+  },
+  iPod: {
+    sheet1: "F5",
+    sheet2: "F7",
+    sheet3: "F8",
+    sheet4: null,
+    sheet5: null,
+  },
+  default: {
+    sheet1: "F4",
+    sheet2: "F4",
+    sheet3: "F4",
+    sheet4: "F4",
+  },
+};

@@ -31,9 +31,10 @@ const FilesPage: React.FC = () => {
           const untitledName = await generateUntitledFilename(store);
           const encodedContent = encodeURIComponent(currentContent);
 
+          const now = new Date().toISOString();
           const untitledFile = new File(
-            new Date().toString(),
-            new Date().toString(),
+            now,
+            now,
             encodedContent,
             untitledName,
             billType
@@ -53,9 +54,10 @@ const FilesPage: React.FC = () => {
         const templateContent = encodeURIComponent(
           JSON.stringify(templateData)
         );
+        const now2 = new Date().toISOString();
         const defaultFile = new File(
-          new Date().toString(),
-          new Date().toString(),
+          now2,
+          now2,
           templateContent,
           "default",
           1 // Reset to default bill type

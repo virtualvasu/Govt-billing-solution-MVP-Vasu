@@ -53,17 +53,24 @@ const NewFile: React.FC<{
 
   const createNewFile = async () => {
     try {
-      // Set selected file to "default" first
+      // Reset to defaults first
+      resetToDefaults();
+
+      // Set selected file to "default"
       updateSelectedFile("default");
 
       const msc = DATA["home"][device]["msc"];
 
-      // Reset to defaults and clear the default file
-      resetToDefaults();
+      // Load the template data into the spreadsheet
+      AppGeneral.viewFile("default", JSON.stringify(msc));
 
-      setTimeout(() => {
-        AppGeneral.viewFile("default", JSON.stringify(msc));
-      }, 100);
+      // Save the new template as the default file in storage
+      const templateContent = encodeURIComponent(JSON.stringify(msc));
+      const now = new Date().toISOString();
+      const newDefaultFile = new File(now, now, templateContent, "default", 1);
+      await store._saveFile(newDefaultFile);
+
+      console.log("Created new default file with template data");
 
       setToastMessage("New invoice created");
       setShowToast(true);

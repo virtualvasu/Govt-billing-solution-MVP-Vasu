@@ -30,6 +30,8 @@ import {
   IonModal,
   IonFab,
   IonFabButton,
+  IonSelect,
+  IonSelectOption,
 } from "@ionic/react";
 import {
   trash,
@@ -43,15 +45,17 @@ import {
   folderOpen,
   cloudUpload,
   close,
+  swapVertical,
+  create,
 } from "ionicons/icons";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useHistory } from "react-router-dom";
 import {
-  serverFilesService,
+  cloudService,
   ServerFile,
   LoginCredentials,
   RegisterCredentials,
-} from "../../services/serverFiles";
+} from "../../services/cloud-service";
 import { useInvoice } from "../../contexts/InvoiceContext";
 import { cleanServerFilename } from "../../utils/helper";
 
@@ -69,17 +73,22 @@ const Files: React.FC<{
 
   const [showAlert1, setShowAlert1] = useState(false);
   const [currentKey, setCurrentKey] = useState<string | null>(null);
+  const [showServerDeleteAlert, setShowServerDeleteAlert] = useState(false);
+  const [currentServerFile, setCurrentServerFile] = useState<ServerFile | null>(
+    null
+  );
+  const [showRenameAlert, setShowRenameAlert] = useState(false);
+  const [renameFileName, setRenameFileName] = useState("");
+  const [currentRenameKey, setCurrentRenameKey] = useState<string | null>(null);
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const [loadingFile, setLoadingFile] = useState<string | null>(null);
   const [fileSource, setFileSource] = useState<"local" | "server">("local");
   const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState<
+    "name" | "date" | "dateCreated" | "dateModified"
+  >("dateModified");
   const [fileListContent, setFileListContent] = useState<React.ReactNode>(null);
-  const [showPasswordAlert, setShowPasswordAlert] = useState(false);
-  const [fileRequiringPassword, setFileRequiringPassword] = useState<
-    string | null
-  >(null);
-  const [passwordForFile, setPasswordForFile] = useState("");
 
   // Server files state
   const [serverFiles, setServerFiles] = useState<ServerFile[]>([]);
@@ -118,15 +127,6 @@ const Files: React.FC<{
         props.handleDefaultFileSwitch
       ) {
         await props.handleDefaultFileSwitch();
-      }
-
-      const isEncrypted = await props.store._isFileEncrypted(key);
-      console.log("Is file encrypted:", isEncrypted);
-
-      if (isEncrypted) {
-        setFileRequiringPassword(key);
-        setShowPasswordAlert(true);
-        return;
       }
 
       const data = await props.store._getFile(key);
@@ -189,35 +189,16 @@ const Files: React.FC<{
     }
   };
 
-  // Load encrypted file
-  const loadFileWithPassword = async (key: string, password: string) => {
-    try {
-      // Handle default file switch if needed (only if switching to a different file)
-      if (
-        selectedFile === "default" &&
-        key !== "default" &&
-        props.handleDefaultFileSwitch
-      ) {
-        await props.handleDefaultFileSwitch();
-      }
-
-      const data = await props.store._getFileWithPassword(key, password);
-      AppGeneral.viewFile(key, decodeURIComponent(data.content));
-      props.updateSelectedFile(key);
-      props.updateBillType(data.billType);
-      setToastMessage(`Loaded ${key}`);
-      setShowToast(true);
-      history.push("/home");
-    } catch (error) {
-      setToastMessage("Wrong password or file corrupted");
-      setShowToast(true);
-    }
-  };
-
   // Delete file
   const deleteFile = (key: string) => {
     setShowAlert1(true);
     setCurrentKey(key);
+  };
+
+  // Delete server file (with confirmation)
+  const deleteServerFile = (file: ServerFile) => {
+    setShowServerDeleteAlert(true);
+    setCurrentServerFile(file);
   };
 
   // Load default file
@@ -227,14 +208,150 @@ const Files: React.FC<{
     props.updateSelectedFile("default");
   };
 
-  // Format date
-  const _formatDate = (date: string) => new Date(date).toLocaleString();
+  // Format date with validation
+  const _formatDate = (date: string) => {
+    if (!date) return "Unknown date";
+    const parsedDate = new Date(date);
+    if (isNaN(parsedDate.getTime())) {
+      return "Invalid date";
+    }
+    return parsedDate.toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+  };
+
+  // Get appropriate date label and value based on sort option for local files
+  const getLocalFileDateInfo = (file: any) => {
+    const parseDate = (dateValue: any) => {
+      if (!dateValue) return null;
+
+      // If it's already a valid date string (ISO format)
+      if (
+        typeof dateValue === "string" &&
+        !isNaN(new Date(dateValue).getTime())
+      ) {
+        return dateValue;
+      }
+
+      // If it's a Date.toString() format, parse it
+      if (typeof dateValue === "string" && dateValue.includes("GMT")) {
+        const parsed = new Date(dateValue);
+        return !isNaN(parsed.getTime()) ? parsed.toISOString() : null;
+      }
+
+      return null;
+    };
+
+    if (sortBy === "dateCreated") {
+      const createdDate =
+        parseDate(file.dateCreated) ||
+        parseDate(file.date) ||
+        parseDate(file.dateModified);
+      return {
+        label: "Created",
+        value: createdDate || new Date().toISOString(),
+      };
+    } else if (sortBy === "dateModified") {
+      const modifiedDate = parseDate(file.dateModified) || parseDate(file.date);
+      return {
+        label: "Modified",
+        value: modifiedDate || new Date().toISOString(),
+      };
+    } else {
+      const modifiedDate = parseDate(file.date) || parseDate(file.dateModified);
+      return {
+        label: "Modified",
+        value: modifiedDate || new Date().toISOString(),
+      };
+    }
+  };
+
+  // Sort files based on selected criteria
+  const sortFiles = (
+    files: any[],
+    sortCriteria: "name" | "date" | "dateCreated" | "dateModified"
+  ) => {
+    const sortedFiles = [...files];
+
+    switch (sortCriteria) {
+      case "name":
+        return sortedFiles.sort((a, b) => {
+          const nameA = (a.name || a.filename || "").toLowerCase();
+          const nameB = (b.name || b.filename || "").toLowerCase();
+          return nameA.localeCompare(nameB);
+        });
+      case "date":
+        return sortedFiles.sort((a, b) => {
+          const dateA = new Date(a.date || a.created_at || 0).getTime();
+          const dateB = new Date(b.date || b.created_at || 0).getTime();
+          return dateB - dateA; // Most recent first
+        });
+      case "dateCreated":
+        return sortedFiles.sort((a, b) => {
+          const dateA = new Date(
+            a.dateCreated || a.date || a.dateModified || 0
+          ).getTime();
+          const dateB = new Date(
+            b.dateCreated || b.date || b.dateModified || 0
+          ).getTime();
+          // Handle invalid dates by treating them as very old dates (0)
+          const validDateA = isNaN(dateA) ? 0 : dateA;
+          const validDateB = isNaN(dateB) ? 0 : dateB;
+          return validDateB - validDateA; // Most recent first
+        });
+      case "dateModified":
+        return sortedFiles.sort((a, b) => {
+          const dateA = new Date(a.dateModified || a.date || 0).getTime();
+          const dateB = new Date(b.dateModified || b.date || 0).getTime();
+          // Handle invalid dates by treating them as very old dates (0)
+          const validDateA = isNaN(dateA) ? 0 : dateA;
+          const validDateB = isNaN(dateB) ? 0 : dateB;
+          return validDateB - validDateA; // Most recent first
+        });
+      default:
+        return sortedFiles;
+    }
+  };
 
   // Group files by date
-  const groupFilesByDate = (files: any[]) => {
+  const groupFilesByDate = (
+    files: any[],
+    sortCriteria?: "name" | "date" | "dateCreated" | "dateModified"
+  ) => {
     const groups: { [key: string]: any[] } = {};
     files.forEach((file) => {
-      const dateHeader = new Date(file.date).toDateString();
+      let dateForGrouping;
+
+      if (sortCriteria === "dateCreated") {
+        const createdDate = file.dateCreated || file.date || file.dateModified;
+        dateForGrouping = new Date(createdDate);
+        // Fallback to a valid date if the created date is invalid
+        if (isNaN(dateForGrouping.getTime())) {
+          dateForGrouping = new Date(
+            file.dateModified || file.date || Date.now()
+          );
+        }
+      } else if (sortCriteria === "dateModified") {
+        const modifiedDate = file.dateModified || file.date;
+        dateForGrouping = new Date(modifiedDate);
+        // Fallback to a valid date if the modified date is invalid
+        if (isNaN(dateForGrouping.getTime())) {
+          dateForGrouping = new Date(file.date || Date.now());
+        }
+      } else {
+        dateForGrouping = new Date(file.date || file.created_at);
+        // Fallback to current date if invalid
+        if (isNaN(dateForGrouping.getTime())) {
+          dateForGrouping = new Date();
+        }
+      }
+
+      const dateHeader = dateForGrouping.toDateString();
       if (!groups[dateHeader]) groups[dateHeader] = [];
       groups[dateHeader].push(file);
     });
@@ -258,11 +375,11 @@ const Files: React.FC<{
 
   // Server files functions
   const loadServerFiles = async () => {
-    if (!serverFilesService.isAuthenticated()) return;
+    if (!cloudService.isAuthenticated()) return;
 
     setServerFilesLoading(true);
     try {
-      const files = await serverFilesService.getFiles();
+      const files = await cloudService.getFiles();
       setServerFiles(files);
     } catch (error) {
       setToastMessage("Failed to load server files");
@@ -274,7 +391,7 @@ const Files: React.FC<{
 
   const handleLogin = async () => {
     try {
-      await serverFilesService.login(loginCredentials);
+      await cloudService.login(loginCredentials);
       setShowLoginModal(false);
       setLoginCredentials({ email: "", password: "" });
       setToastMessage("Login successful");
@@ -288,7 +405,7 @@ const Files: React.FC<{
 
   const handleRegister = async () => {
     try {
-      await serverFilesService.register(registerCredentials);
+      await cloudService.register(registerCredentials);
       setShowRegisterModal(false);
       setRegisterCredentials({ name: "", email: "", password: "" });
       setToastMessage("Registration successful. Please login.");
@@ -302,7 +419,7 @@ const Files: React.FC<{
   };
 
   const handleLogout = () => {
-    serverFilesService.clearToken();
+    cloudService.clearToken();
     setServerFiles([]);
     setToastMessage("Logged out successfully");
     setShowToast(true);
@@ -310,7 +427,7 @@ const Files: React.FC<{
 
   const handleFileDownload = async (file: ServerFile) => {
     try {
-      const blob = await serverFilesService.downloadFile(file.id);
+      const blob = await cloudService.downloadFile(file.id);
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -332,7 +449,7 @@ const Files: React.FC<{
   const handleFileDelete = async (fileId: number) => {
     setDeletingFile(fileId);
     try {
-      await serverFilesService.deleteFile(fileId);
+      await cloudService.deleteFile(fileId);
       setToastMessage("File deleted successfully");
       setShowToast(true);
       loadServerFiles();
@@ -350,7 +467,7 @@ const Files: React.FC<{
       setShowToast(true);
 
       // Download the file from server
-      const blob = await serverFilesService.downloadFile(file.id);
+      const blob = await cloudService.downloadFile(file.id);
 
       // Convert blob to text
       const text = await blob.text();
@@ -397,9 +514,10 @@ const Files: React.FC<{
         }
 
         // Create a local file
+        const now = new Date().toISOString();
         const localFile = new LocalFile(
-          new Date().toString(),
-          new Date().toString(),
+          now,
+          now,
           encodedContent, // Use URL-encoded content
           localFileName, // Use filename without server_ prefix
           fileData.billType,
@@ -446,7 +564,7 @@ const Files: React.FC<{
 
   // Save all local files to server
   const handleSaveAllToServer = async () => {
-    if (!serverFilesService.isAuthenticated()) {
+    if (!cloudService.isAuthenticated()) {
       setToastMessage("Please login to save files to server");
       setShowToast(true);
       return;
@@ -483,15 +601,6 @@ const Files: React.FC<{
         );
 
         try {
-          // Check if file is encrypted - skip encrypted files for now
-          const isEncrypted = await props.store._isFileEncrypted(fileName);
-          if (isEncrypted) {
-            console.log(`Skipping encrypted file: ${fileName}`);
-            errors.push(`${fileName} (encrypted files not supported)`);
-            errorCount++;
-            continue;
-          }
-
           // Get file data
           const fileData = await props.store._getFile(fileName);
           if (!fileData || !fileData.content) {
@@ -522,7 +631,7 @@ const Files: React.FC<{
           }
 
           // Upload to server using the existing service
-          await serverFilesService.uploadInvoiceData(
+          await cloudService.uploadInvoiceData(
             fileName,
             contentToUpload,
             fileData.billType || 0
@@ -577,7 +686,7 @@ const Files: React.FC<{
 
   // Move all server files to local storage
   const handleMoveAllToLocal = async () => {
-    if (!serverFilesService.isAuthenticated()) {
+    if (!cloudService.isAuthenticated()) {
       setToastMessage("Please login to access server files");
       setShowToast(true);
       return;
@@ -614,7 +723,7 @@ const Files: React.FC<{
 
         try {
           // Download the file from server
-          const blob = await serverFilesService.downloadFile(file.id);
+          const blob = await cloudService.downloadFile(file.id);
           const text = await blob.text();
           const fileData = JSON.parse(text);
 
@@ -646,9 +755,10 @@ const Files: React.FC<{
             const encodedContent = encodeURIComponent(fileData.content);
 
             // Create a local file
+            const now = new Date().toISOString();
             const localFile = new LocalFile(
-              new Date().toString(),
-              new Date().toString(),
+              now,
+              now,
               encodedContent,
               localFileName,
               fileData.billType,
@@ -712,25 +822,149 @@ const Files: React.FC<{
     }
   };
 
+  // Validation function (adapted from Menu.tsx)
+  const _validateName = async (filename: string, excludeKey?: string) => {
+    filename = filename.trim();
+    if (filename === "default" || filename === "Untitled") {
+      setToastMessage(
+        "Cannot update default or Untitled file! Use Save As Button to save."
+      );
+      return false;
+    } else if (filename === "" || !filename) {
+      setToastMessage("Filename cannot be empty");
+      return false;
+    } else if (filename.length > 30) {
+      setToastMessage("Filename too long");
+      return false;
+    } else if (/^[a-zA-Z0-9- ]*$/.test(filename) === false) {
+      setToastMessage("Special Characters cannot be used");
+      return false;
+    } else if (
+      (await props.store._checkKey(filename)) &&
+      filename !== excludeKey
+    ) {
+      setToastMessage("Filename already exists");
+      return false;
+    }
+    return true;
+  };
+
+  // Rename file function
+  const renameFile = (key: string) => {
+    setCurrentRenameKey(key);
+    setRenameFileName(key);
+    setShowRenameAlert(true);
+  };
+
+  // Handle rename confirmation
+  const handleRename = async (newFileName: string) => {
+    if (!currentRenameKey) return;
+
+    // If the new filename is the same as the current one, just close the dialog
+    if (newFileName === currentRenameKey) {
+      setToastMessage("File name unchanged");
+      setShowToast(true);
+      setCurrentRenameKey(null);
+      setRenameFileName("");
+      setShowRenameAlert(false);
+      return;
+    }
+
+    if (await _validateName(newFileName, currentRenameKey)) {
+      try {
+        // Get the existing file data
+        const fileData = await props.store._getFile(currentRenameKey);
+
+        // Create a new file with the new name
+        const renamedFile = new LocalFile(
+          fileData.created, // Keep the original creation date
+          new Date().toISOString(), // Use ISO string for modified date
+          fileData.content,
+          newFileName,
+          fileData.billType,
+          fileData.isPasswordProtected,
+          fileData.password
+        );
+
+        // Save the new file
+        await props.store._saveFile(renamedFile);
+
+        // Delete the old file
+        await props.store._deleteFile(currentRenameKey);
+
+        // Update selected file if it was the renamed file
+        if (selectedFile === currentRenameKey) {
+          updateSelectedFile(newFileName);
+        }
+
+        setToastMessage(`File renamed to "${newFileName}"`);
+        setShowToast(true);
+
+        // Refresh the file list
+        await renderFileList();
+
+        // Reset state
+        setCurrentRenameKey(null);
+        setRenameFileName("");
+        setShowRenameAlert(false);
+      } catch (error) {
+        console.error("Error renaming file:", error);
+        setToastMessage("Failed to rename file");
+        setShowToast(true);
+        // Reset state even on error to close the dialog
+        setCurrentRenameKey(null);
+        setRenameFileName("");
+        setShowRenameAlert(false);
+      }
+    } else {
+      // Validation failed - show the error toast but keep the dialog open
+      // The validation function already shows the error toast
+      setShowToast(true);
+      // Don't close the dialog here - let the user see the error and try again
+    }
+  };
+
   // Render file list
   const renderFileList = async () => {
     let content;
     if (fileSource === "local") {
       const localFiles = await props.store._getAllFiles();
+
       const filesArray = Object.keys(localFiles)
         .filter((key) => key !== "default") // Exclude the default file from the list
-        .map((key) => ({
-          key,
-          name: key,
-          date: localFiles[key].modified,
-          isEncrypted: localFiles[key].isEncrypted,
-          type: "local",
-        }));
+        .map((key) => {
+          const fileData = localFiles[key];
+
+          // Ensure dates are properly converted - handle both ISO strings and Date.toString() formats
+          let createdDate = fileData.created;
+          let modifiedDate = fileData.modified;
+
+          // If the date looks like a Date.toString() format, try to parse it
+          // Date.toString() typically looks like "Mon Jul 06 2025 10:30:00 GMT+0000 (UTC)"
+          if (typeof createdDate === "string" && createdDate.includes("GMT")) {
+            createdDate = new Date(createdDate).toISOString();
+          }
+          if (
+            typeof modifiedDate === "string" &&
+            modifiedDate.includes("GMT")
+          ) {
+            modifiedDate = new Date(modifiedDate).toISOString();
+          }
+
+          return {
+            key,
+            name: key,
+            date: modifiedDate, // For backward compatibility
+            dateCreated: createdDate,
+            dateModified: modifiedDate,
+            type: "local",
+          };
+        });
       const filteredFiles = filterFilesBySearch(filesArray, searchQuery);
       if (filteredFiles.length === 0) {
         content = (
-          <IonList>
-            <IonItem>
+          <IonList style={{ border: "none" }} lines="none">
+            <IonItem style={{ "--border-width": "0px" }}>
               <IonLabel>
                 {searchQuery.trim()
                   ? `No files found matching "${searchQuery}"`
@@ -740,69 +974,160 @@ const Files: React.FC<{
           </IonList>
         );
       } else {
-        const groupedFiles = groupFilesByDate(filteredFiles);
-        content = (
-          <IonList>
-            {Object.entries(groupedFiles).map(([dateHeader, files]) => (
-              <div key={`local-group-${dateHeader}`}>
-                <IonItem color="light" className="date-header-item">
-                  <IonLabel>
-                    <h2
-                      className="date-header-text"
-                      style={{ color: "var(--ion-color-primary)" }}
-                    >
-                      {dateHeader}
-                    </h2>
-                  </IonLabel>
-                </IonItem>
-                {(files as any[]).map((file) => (
-                  <IonItemGroup key={`local-${file.key}`}>
-                    <IonItem
-                      className="mobile-file-item"
-                      onClick={() => editFile(file.key)}
+        const sortedFiles = sortFiles(filteredFiles, sortBy);
+
+        if (sortBy === "name") {
+          // For name sorting, show files in a simple list without date grouping
+          content = (
+            <IonList style={{ border: "none" }} lines="none">
+              {sortedFiles.map((file) => (
+                <IonItemGroup key={`local-${file.key}`}>
+                  <IonItem
+                    className="mobile-file-item"
+                    onClick={() => editFile(file.key)}
+                    style={{
+                      "--border-width": "0px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <IonIcon
+                      icon={documentText}
+                      slot="start"
+                      className="file-icon document-icon"
+                    />
+                    <IonLabel className="mobile-file-label">
+                      <h3>{file.name}</h3>
+                      <p>
+                        Local file • {getLocalFileDateInfo(file).label}:{" "}
+                        {_formatDate(getLocalFileDateInfo(file).value)}
+                      </p>
+                    </IonLabel>
+                    <div
+                      slot="end"
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                      }}
                     >
                       <IonIcon
-                        icon={file.isEncrypted ? key : documentText}
-                        slot="start"
-                        className={`file-icon ${
-                          file.isEncrypted ? "encrypted-icon" : "document-icon"
-                        }`}
-                        color={file.isEncrypted ? "warning" : undefined}
+                        icon={create}
+                        color="primary"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          renameFile(file.key);
+                        }}
+                        style={{
+                          fontSize: "24px",
+                          cursor: "pointer",
+                        }}
                       />
-                      <IonLabel className="mobile-file-label">
-                        <h3>{file.name}</h3>
-                        <p>
-                          Local file • {_formatDate(file.date)}
-                          {file.isEncrypted && " • 🔒 Password Protected"}
-                        </p>
-                      </IonLabel>
-                      <IonBadge
-                        color={file.isEncrypted ? "warning" : "secondary"}
-                        slot="end"
-                        className="mobile-badge"
-                      >
-                        {file.isEncrypted ? "ENCRYPTED" : "LOCAL"}
-                      </IonBadge>
                       <IonIcon
                         icon={trash}
                         color="danger"
-                        slot="end"
-                        size="small"
                         onClick={(e) => {
                           e.stopPropagation();
                           deleteFile(file.key);
                         }}
+                        style={{
+                          fontSize: "24px",
+                          cursor: "pointer",
+                        }}
                       />
-                    </IonItem>
-                  </IonItemGroup>
-                ))}
-              </div>
-            ))}
-          </IonList>
-        );
+                    </div>
+                  </IonItem>
+                </IonItemGroup>
+              ))}
+            </IonList>
+          );
+        } else {
+          // For date and recent sorting, group by date
+          const groupedFiles = groupFilesByDate(sortedFiles, sortBy);
+          content = (
+            <IonList style={{ border: "none" }} lines="none">
+              {Object.entries(groupedFiles).map(([dateHeader, files]) => (
+                <div key={`local-group-${dateHeader}`}>
+                  <IonItem
+                    color="light"
+                    className="date-header-item"
+                    style={{ "--border-width": "0px" }}
+                  >
+                    <IonLabel>
+                      <h2
+                        className="date-header-text"
+                        style={{ color: "var(--ion-color-primary)" }}
+                      >
+                        {dateHeader}
+                      </h2>
+                    </IonLabel>
+                  </IonItem>
+                  {(files as any[]).map((file) => (
+                    <IonItemGroup key={`local-${file.key}`}>
+                      {" "}
+                      <IonItem
+                        className="mobile-file-item"
+                        onClick={() => editFile(file.key)}
+                        style={{
+                          "--border-width": "0px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <IonIcon
+                          icon={documentText}
+                          slot="start"
+                          className="file-icon document-icon"
+                        />
+                        <IonLabel className="mobile-file-label">
+                          <h3>{file.name}</h3>
+                          <p>
+                            Local file • {getLocalFileDateInfo(file).label}:{" "}
+                            {_formatDate(getLocalFileDateInfo(file).value)}
+                          </p>
+                        </IonLabel>
+                        <div
+                          slot="end"
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                          }}
+                        >
+                          <IonIcon
+                            icon={create}
+                            color="primary"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              renameFile(file.key);
+                            }}
+                            style={{
+                              fontSize: "24px",
+                              cursor: "pointer",
+                            }}
+                          />
+                          <IonIcon
+                            icon={trash}
+                            color="danger"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteFile(file.key);
+                            }}
+                            style={{
+                              fontSize: "24px",
+                              cursor: "pointer",
+                            }}
+                          />
+                        </div>
+                      </IonItem>
+                    </IonItemGroup>
+                  ))}
+                </div>
+              ))}
+            </IonList>
+          );
+        }
       }
     } else if (fileSource === "server") {
-      if (!serverFilesService.isAuthenticated()) {
+      if (!cloudService.isAuthenticated()) {
         content = (
           <IonCard>
             <IonCardHeader>
@@ -829,8 +1154,8 @@ const Files: React.FC<{
       } else {
         if (serverFilesLoading) {
           content = (
-            <IonList>
-              <IonItem>
+            <IonList style={{ border: "none" }} lines="none">
+              <IonItem style={{ "--border-width": "0px" }}>
                 <IonSpinner name="circular" slot="start" />
                 <IonLabel>Loading server files...</IonLabel>
               </IonItem>
@@ -838,8 +1163,8 @@ const Files: React.FC<{
           );
         } else if (serverFiles.length === 0) {
           content = (
-            <IonList>
-              <IonItem>
+            <IonList style={{ border: "none" }} lines="none">
+              <IonItem style={{ "--border-width": "0px" }}>
                 <IonLabel>
                   {searchQuery.trim()
                     ? `No files found matching "${searchQuery}"`
@@ -852,8 +1177,8 @@ const Files: React.FC<{
           const filteredFiles = filterFilesBySearch(serverFiles, searchQuery);
           if (filteredFiles.length === 0) {
             content = (
-              <IonList>
-                <IonItem>
+              <IonList style={{ border: "none" }} lines="none">
+                <IonItem style={{ "--border-width": "0px" }}>
                   <IonLabel>
                     {searchQuery.trim()
                       ? `No files found matching "${searchQuery}"`
@@ -863,93 +1188,187 @@ const Files: React.FC<{
               </IonList>
             );
           } else {
-            const groupedFiles = groupFilesByDate(
-              filteredFiles.map((file) => ({
-                ...file,
-                date: file.created_at,
-                name: file.filename,
-              }))
-            );
-            content = (
-              <IonList>
-                {Object.entries(groupedFiles).map(([dateHeader, files]) => (
-                  <div key={`server-group-${dateHeader}`}>
-                    <IonItem color="light" className="date-header-item">
-                      <IonLabel>
-                        <h2
-                          className="date-header-text"
-                          style={{ color: "var(--ion-color-primary)" }}
+            const mappedFiles = filteredFiles.map((file) => ({
+              ...file,
+              date: file.created_at,
+              name: file.filename,
+            }));
+            const sortedFiles = sortFiles(mappedFiles, sortBy);
+
+            if (sortBy === "name") {
+              // For name sorting, show files in a simple list without date grouping
+              content = (
+                <IonList style={{ border: "none" }} lines="none">
+                  {sortedFiles.map((file) => {
+                    const isDeleting = deletingFile === file.id;
+                    return (
+                      <IonItemGroup key={`server-${file.id}`}>
+                        <IonItem
+                          className="mobile-file-item"
+                          style={{
+                            "--border-width": "0px",
+                            cursor: "pointer",
+                          }}
                         >
-                          {dateHeader}
-                        </h2>
-                      </IonLabel>
-                    </IonItem>
-                    {(files as any[]).map((file) => {
-                      const isDeleting = deletingFile === file.id;
-                      return (
-                        <IonItemGroup key={`server-${file.id}`}>
-                          <IonItem className="mobile-file-item">
-                            <IonIcon
-                              icon={server}
-                              slot="start"
-                              className="file-icon server-icon"
-                            />
-                            <IonLabel className="mobile-file-label">
-                              <h3>
-                                {file.filename.startsWith("server_")
-                                  ? cleanServerFilename(file.filename)
-                                  : file.filename}
-                              </h3>
-                              <p>
-                                Server file • {_formatDate(file.created_at)}
-                              </p>
-                              <p>
-                                Size: {(file.file_size / 1024).toFixed(2)} KB
-                                {file.filename.startsWith("server_")}
-                              </p>
-                            </IonLabel>
-                            <IonBadge
-                              color="tertiary"
-                              slot="end"
-                              className="mobile-badge"
-                            >
-                              SERVER
-                            </IonBadge>
+                          <IonIcon
+                            icon={server}
+                            slot="start"
+                            className="file-icon server-icon"
+                          />
+                          <IonLabel className="mobile-file-label">
+                            <h3>
+                              {file.filename.startsWith("server_")
+                                ? cleanServerFilename(file.filename)
+                                : file.filename}
+                            </h3>
+                            <p>Server file • {_formatDate(file.created_at)}</p>
+                            <p>
+                              Size: {(file.file_size / 1024).toFixed(2)} KB
+                              {file.filename.startsWith("server_")}
+                            </p>
+                          </IonLabel>
+                          <div
+                            slot="end"
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "6px",
+                            }}
+                          >
                             {file.filename.startsWith("server_") && (
                               <IonIcon
                                 icon={download}
                                 color="success"
-                                slot="end"
-                                size="small"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleMoveToLocal(file);
                                 }}
                                 title="Move to Local Storage"
+                                style={{
+                                  fontSize: "24px",
+                                  cursor: "pointer",
+                                }}
                               />
                             )}
                             <IonIcon
                               icon={trash}
                               color="danger"
-                              slot="end"
-                              size="small"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleFileDelete(file.id);
+                                deleteServerFile(file);
                               }}
-                              style={{ opacity: isDeleting ? 0.5 : 1 }}
+                              style={{
+                                fontSize: "24px",
+                                cursor: "pointer",
+                                opacity: isDeleting ? 0.5 : 1,
+                              }}
                             />
-                            {isDeleting && (
-                              <IonSpinner name="circular" slot="end" />
-                            )}
-                          </IonItem>
-                        </IonItemGroup>
-                      );
-                    })}
-                  </div>
-                ))}
-              </IonList>
-            );
+                            {isDeleting && <IonSpinner name="circular" />}
+                          </div>
+                        </IonItem>
+                      </IonItemGroup>
+                    );
+                  })}
+                </IonList>
+              );
+            } else {
+              // For date and recent sorting, group by date
+              const groupedFiles = groupFilesByDate(sortedFiles, sortBy);
+              content = (
+                <IonList style={{ border: "none" }} lines="none">
+                  {Object.entries(groupedFiles).map(([dateHeader, files]) => (
+                    <div key={`server-group-${dateHeader}`}>
+                      <IonItem
+                        color="light"
+                        className="date-header-item"
+                        style={{ "--border-width": "0px" }}
+                      >
+                        <IonLabel>
+                          <h2
+                            className="date-header-text"
+                            style={{ color: "var(--ion-color-primary)" }}
+                          >
+                            {dateHeader}
+                          </h2>
+                        </IonLabel>
+                      </IonItem>
+                      {(files as any[]).map((file) => {
+                        const isDeleting = deletingFile === file.id;
+                        return (
+                          <IonItemGroup key={`server-${file.id}`}>
+                            <IonItem
+                              className="mobile-file-item"
+                              style={{
+                                "--border-width": "0px",
+                                cursor: "pointer",
+                              }}
+                            >
+                              <IonIcon
+                                icon={server}
+                                slot="start"
+                                className="file-icon server-icon"
+                              />
+                              <IonLabel className="mobile-file-label">
+                                <h3>
+                                  {file.filename.startsWith("server_")
+                                    ? cleanServerFilename(file.filename)
+                                    : file.filename}
+                                </h3>
+                                <p>
+                                  Server file • {_formatDate(file.created_at)}
+                                </p>
+                                <p>
+                                  Size: {(file.file_size / 1024).toFixed(2)} KB
+                                  {file.filename.startsWith("server_")}
+                                </p>
+                              </IonLabel>
+                              <div
+                                slot="end"
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "6px",
+                                }}
+                              >
+                                {file.filename.startsWith("server_") && (
+                                  <IonIcon
+                                    icon={download}
+                                    color="success"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleMoveToLocal(file);
+                                    }}
+                                    title="Move to Local Storage"
+                                    style={{
+                                      fontSize: "24px",
+                                      cursor: "pointer",
+                                    }}
+                                  />
+                                )}
+                                <IonIcon
+                                  icon={trash}
+                                  color="danger"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    deleteServerFile(file);
+                                  }}
+                                  style={{
+                                    fontSize: "24px",
+                                    cursor: "pointer",
+                                    opacity: isDeleting ? 0.5 : 1,
+                                  }}
+                                />
+                                {isDeleting && <IonSpinner name="circular" />}
+                              </div>
+                            </IonItem>
+                          </IonItemGroup>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </IonList>
+              );
+            }
           }
         }
       }
@@ -960,11 +1379,33 @@ const Files: React.FC<{
   useEffect(() => {
     renderFileList();
     // eslint-disable-next-line
-  }, [props.file, fileSource, searchQuery, serverFiles, serverFilesLoading]);
+  }, [
+    props.file,
+    fileSource,
+    searchQuery,
+    sortBy,
+    serverFiles,
+    serverFilesLoading,
+  ]);
 
   useEffect(() => {
-    if (fileSource === "server" && serverFilesService.isAuthenticated()) {
+    if (fileSource === "server" && cloudService.isAuthenticated()) {
       loadServerFiles();
+    }
+  }, [fileSource]);
+
+  // Reset sort option when switching file sources to ensure compatibility
+  useEffect(() => {
+    if (fileSource === "server") {
+      // For server files, only "date" and "name" are available
+      if (sortBy === "dateCreated" || sortBy === "dateModified") {
+        setSortBy("date");
+      }
+    } else {
+      // For local files, if coming from server and using "date", switch to "dateModified"
+      if (sortBy === "date") {
+        setSortBy("dateModified");
+      }
     }
   }, [fileSource]);
 
@@ -992,22 +1433,77 @@ const Files: React.FC<{
             </IonSegmentButton>
           </IonSegment>
           <div style={{ padding: "16px 16px 8px 16px" }}>
-            <IonSearchbar
-              placeholder="Search files by name..."
-              value={searchQuery}
-              onIonInput={(e) => setSearchQuery(e.detail.value!)}
-              onIonClear={() => setSearchQuery("")}
-              showClearButton="focus"
-              debounce={300}
-            />
+            <div
+              style={{
+                display: "flex",
+                gap: "8px",
+                alignItems: "center",
+                maxWidth: "800px",
+                margin: "0 auto",
+              }}
+            >
+              <IonSearchbar
+                placeholder="Search files by name..."
+                value={searchQuery}
+                onIonInput={(e) => setSearchQuery(e.detail.value!)}
+                onIonClear={() => setSearchQuery("")}
+                showClearButton="focus"
+                debounce={300}
+                style={{ flex: "2", minWidth: "200px" }}
+              />
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  flex: "1",
+                  minWidth: "140px",
+                  maxWidth: "180px",
+                }}
+              >
+                <IonIcon
+                  icon={swapVertical}
+                  style={{ marginRight: "4px", fontSize: "16px" }}
+                />
+                <IonSelect
+                  value={sortBy}
+                  placeholder="Sort by"
+                  onIonChange={(e) => setSortBy(e.detail.value)}
+                  style={{
+                    flex: "1",
+                    "--placeholder-color": "var(--ion-color-medium)",
+                    "--color": "var(--ion-color-dark)",
+                  }}
+                  interface="popover"
+                >
+                  {fileSource === "local" ? (
+                    <>
+                      <IonSelectOption value="dateModified">
+                        By Date Modified
+                      </IonSelectOption>
+                      <IonSelectOption value="dateCreated">
+                        By Date Created
+                      </IonSelectOption>
+                      <IonSelectOption value="name">By Name</IonSelectOption>
+                    </>
+                  ) : (
+                    <>
+                      <IonSelectOption value="date">By Date</IonSelectOption>
+                      <IonSelectOption value="name">By Name</IonSelectOption>
+                    </>
+                  )}
+                </IonSelect>
+              </div>
+            </div>
           </div>
-          {fileSource === "local" && serverFilesService.isAuthenticated() && (
+          {fileSource === "local" && cloudService.isAuthenticated() && (
             <div
               style={{
                 padding: "0 16px 8px 16px",
                 display: "flex",
                 gap: "8px",
                 alignItems: "center",
+                maxWidth: "800px",
+                margin: "0 auto",
               }}
             >
               <IonButton
@@ -1035,13 +1531,15 @@ const Files: React.FC<{
               )}
             </div>
           )}
-          {fileSource === "local" && !serverFilesService.isAuthenticated() && (
+          {fileSource === "local" && !cloudService.isAuthenticated() && (
             <div
               style={{
                 padding: "0 16px 8px 16px",
                 display: "flex",
                 gap: "8px",
                 alignItems: "center",
+                maxWidth: "800px",
+                margin: "0 auto",
               }}
             >
               <IonButton size="small" fill="outline" color="medium" disabled>
@@ -1050,7 +1548,7 @@ const Files: React.FC<{
               </IonButton>
             </div>
           )}
-          {fileSource === "server" && serverFilesService.isAuthenticated() && (
+          {fileSource === "server" && cloudService.isAuthenticated() && (
             <div
               style={{
                 padding: "0 16px 8px 16px",
@@ -1058,6 +1556,8 @@ const Files: React.FC<{
                 gap: "8px",
                 alignItems: "center",
                 flexWrap: "wrap",
+                maxWidth: "800px",
+                margin: "0 auto",
               }}
             >
               <IonButton size="small" fill="outline" onClick={handleLogout}>
@@ -1094,7 +1594,16 @@ const Files: React.FC<{
             </div>
           )}
         </div>
-        <div className="files-scrollable-container">{fileListContent}</div>
+        <div
+          className="files-scrollable-container"
+          style={{
+            maxWidth: "800px",
+            margin: "0 auto",
+            padding: "0 16px",
+          }}
+        >
+          {fileListContent}
+        </div>
       </IonContent>
 
       {/* Login Modal */}
@@ -1238,20 +1747,47 @@ const Files: React.FC<{
       />
       <IonAlert
         animated
-        isOpen={showPasswordAlert}
+        isOpen={showServerDeleteAlert}
+        onDidDismiss={() => setShowServerDeleteAlert(false)}
+        header="Delete server file"
+        message={
+          currentServerFile
+            ? `Do you want to delete the "${
+                currentServerFile.filename.startsWith("server_")
+                  ? cleanServerFilename(currentServerFile.filename)
+                  : currentServerFile.filename
+              }" file from the server?`
+            : "Do you want to delete this file from the server?"
+        }
+        buttons={[
+          { text: "No", role: "cancel" },
+          {
+            text: "Yes",
+            handler: async () => {
+              if (currentServerFile) {
+                await handleFileDelete(currentServerFile.id);
+                setCurrentServerFile(null);
+              }
+            },
+          },
+        ]}
+      />
+      <IonAlert
+        animated
+        isOpen={showRenameAlert}
         onDidDismiss={() => {
-          setShowPasswordAlert(false);
-          setFileRequiringPassword(null);
-          setPasswordForFile("");
+          setShowRenameAlert(false);
+          setCurrentRenameKey(null);
+          setRenameFileName("");
         }}
-        header="Password Required"
-        message={`Enter password to access "${fileRequiringPassword}"`}
+        header="Rename File"
+        message={`Enter a new name for "${currentRenameKey}"`}
         inputs={[
           {
-            name: "password",
-            type: "password",
-            placeholder: "Enter password",
-            value: passwordForFile,
+            name: "filename",
+            type: "text",
+            value: renameFileName,
+            placeholder: "Enter new filename",
           },
         ]}
         buttons={[
@@ -1259,21 +1795,19 @@ const Files: React.FC<{
             text: "Cancel",
             role: "cancel",
             handler: () => {
-              setFileRequiringPassword(null);
-              setPasswordForFile("");
+              setCurrentRenameKey(null);
+              setRenameFileName("");
             },
           },
           {
-            text: "Open",
-            handler: (alertData) => {
-              if (alertData.password && fileRequiringPassword) {
-                loadFileWithPassword(fileRequiringPassword, alertData.password);
-                setFileRequiringPassword(null);
-                setPasswordForFile("");
+            text: "Rename",
+            handler: (data) => {
+              const newFileName = data.filename?.trim();
+              if (newFileName) {
+                handleRename(newFileName);
               } else {
-                setToastMessage("Please enter a password");
+                setToastMessage("Filename cannot be empty");
                 setShowToast(true);
-                return false;
               }
             },
           },

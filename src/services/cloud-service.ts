@@ -30,7 +30,31 @@ export interface RegisterCredentials {
   password: string;
 }
 
-class ServerFilesService {
+export interface Logo {
+  id: number;
+  filename: string;
+  s3_key: string;
+  logo_url: string;
+  file_size: number;
+  content_type: string;
+  created_at: string;
+}
+
+export interface LogoResponse {
+  success: boolean;
+  logos: Logo[];
+}
+
+export interface UploadLogoResponse {
+  success: boolean;
+  logo_id: number;
+  filename: string;
+  logo_url: string;
+  file_size: number;
+  message: string;
+}
+
+class CloudService {
   private token: string | null = null;
 
   setToken(token: string) {
@@ -238,6 +262,99 @@ class ServerFilesService {
   isAuthenticated(): boolean {
     return !!this.getToken();
   }
+
+  // Logo management methods
+  async getLogos(): Promise<Logo[]> {
+    const response = await fetch(`${API_BASE_URL}/logos/`, {
+      method: "GET",
+      headers: this.getHeaders(),
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        this.clearToken();
+        throw new Error("Authentication required");
+      }
+      const error = await response.json();
+      throw new Error(error.error || "Failed to fetch logos");
+    }
+
+    const data = await response.json();
+    return data.logos;
+  }
+
+  async uploadLogo(logoFile: File): Promise<UploadLogoResponse> {
+    const formData = new FormData();
+    formData.append("logo", logoFile);
+
+    const headers: HeadersInit = {};
+    const token = this.getToken();
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${API_BASE_URL}/logos/`, {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        this.clearToken();
+        throw new Error("Authentication required");
+      }
+      const error = await response.json();
+      throw new Error(error.error || "Logo upload failed");
+    }
+
+    return await response.json();
+  }
+
+  async deleteLogo(
+    logoId: number
+  ): Promise<{ success: boolean; message: string }> {
+    const response = await fetch(`${API_BASE_URL}/logos/${logoId}`, {
+      method: "DELETE",
+      headers: this.getHeaders(),
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        this.clearToken();
+        throw new Error("Authentication required");
+      }
+      if (response.status === 404) {
+        throw new Error("Logo not found");
+      }
+      const error = await response.json();
+      throw new Error(error.error || "Delete failed");
+    }
+
+    return await response.json();
+  }
+
+  async getLogoDetails(logoId: number): Promise<Logo> {
+    const response = await fetch(`${API_BASE_URL}/logos/${logoId}`, {
+      method: "GET",
+      headers: this.getHeaders(),
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        this.clearToken();
+        throw new Error("Authentication required");
+      }
+      if (response.status === 404) {
+        throw new Error("Logo not found");
+      }
+      const error = await response.json();
+      throw new Error(error.error || "Failed to fetch logo details");
+    }
+
+    const data = await response.json();
+    return data.logo;
+  }
 }
 
-export const serverFilesService = new ServerFilesService();
+export const cloudService = new CloudService();

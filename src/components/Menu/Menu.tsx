@@ -1,7 +1,29 @@
 import React, { useState } from "react";
 import * as AppGeneral from "../socialcalc/index.js";
 import { File, Local } from "../Storage/LocalStorage";
-import { isPlatform, IonToast, IonLoading } from "@ionic/react";
+import {
+  isPlatform,
+  IonToast,
+  IonLoading,
+  IonModal,
+  IonHeader,
+  IonToolbar,
+  IonTitle,
+  IonContent,
+  IonButton,
+  IonItem,
+  IonLabel,
+  IonInput,
+  IonGrid,
+  IonRow,
+  IonCol,
+  IonCard,
+  IonCardContent,
+  IonCardHeader,
+  IonCardTitle,
+  IonIcon,
+  IonSpinner,
+} from "@ionic/react";
 import { EmailComposer } from "capacitor-email-composer";
 import { Printer } from "@ionic-native/printer";
 import { IonActionSheet, IonAlert } from "@ionic/react";
@@ -16,6 +38,11 @@ import {
   documents,
   key,
   server,
+  close,
+  trash,
+  image,
+  checkmark,
+  closeCircle,
 } from "ionicons/icons";
 import { APP_NAME } from "../../app-data";
 import { useTheme } from "../../contexts/ThemeContext";
@@ -26,6 +53,7 @@ import { exportCSV, parseSocialCalcCSV } from "../../services/exportAsCsv";
 import { Share } from "@capacitor/share";
 import { Filesystem, Directory, Encoding } from "@capacitor/filesystem";
 import MenuDialogs from "./MenuDialogs.js";
+import { cloudService, Logo } from "../../services/cloud-service";
 
 const Menu: React.FC<{
   showM: boolean;
@@ -54,6 +82,16 @@ const Menu: React.FC<{
   const [passwordProtect, setPasswordProtect] = useState(false);
   const [filePassword, setFilePassword] = useState("");
   const [currentFileForPassword, setCurrentFileForPassword] = useState("");
+
+  // Logo modal state
+  const [showLogoModal, setShowLogoModal] = useState(false);
+  const [userLogos, setUserLogos] = useState<Logo[]>([]);
+  const [isLoadingLogos, setIsLoadingLogos] = useState(false);
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [selectedLogoFile, setSelectedLogoFile] =
+    useState<globalThis.File | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [logoToDelete, setLogoToDelete] = useState<Logo | null>(null);
 
   /* Utility functions */
   const _validateName = async (filename) => {
@@ -461,9 +499,10 @@ const Menu: React.FC<{
         // filename valid . go on save
         const content = encodeURIComponent(AppGeneral.getSpreadsheetContent());
         // console.log(content);
+        const now = new Date().toISOString();
         const file = new File(
-          new Date().toString(),
-          new Date().toString(),
+          now,
+          now,
           content,
           filename,
           billType,
@@ -497,19 +536,19 @@ const Menu: React.FC<{
           const content = AppGeneral.getSpreadsheetContent();
 
           // Import the server files service
-          const { serverFilesService } = await import(
-            "../../services/serverFiles"
+          const { cloudService } = await import(
+            "../../services/cloud-service.js"
           );
 
           // Check if user is authenticated
-          if (!serverFilesService.isAuthenticated()) {
+          if (!cloudService.isAuthenticated()) {
             setToastMessage("Please login to server files first");
             setShowToast1(true);
             return;
           }
 
           // Upload to server
-          const result = await serverFilesService.uploadInvoiceData(
+          const result = await cloudService.uploadInvoiceData(
             filename,
             content,
             billType
@@ -532,9 +571,10 @@ const Menu: React.FC<{
     if (filename && password) {
       if (await _validateName(filename)) {
         const content = encodeURIComponent(AppGeneral.getSpreadsheetContent());
+        const now = new Date().toISOString();
         const file = new File(
-          new Date().toString(),
-          new Date().toString(),
+          now,
+          now,
           content,
           filename,
           billType,
@@ -591,6 +631,182 @@ const Menu: React.FC<{
           nativeInput.select();
         }
       });
+    }
+  };
+  const handleAddLogo = () => {
+    console.log("Add Logo clicked");
+
+    setShowLogoModal(true);
+    fetchUserLogos();
+  };
+
+  const handleRemoveLogo = () => {
+    console.log("Remove Logo clicked");
+
+    try {
+      // Get the correct logo coordinates based on device type
+      const logoCoordinates = AppGeneral.getLogoCoordinates();
+      console.log("Using logo coordinates for removal:", logoCoordinates);
+
+      // Remove logo with proper coordinate object
+      AppGeneral.removeLogo(logoCoordinates)
+        .then(() => {
+          console.log("Logo removed successfully");
+          setToastMessage("Logo removed successfully!");
+          setShowToast1(true);
+        })
+        .catch((error) => {
+          console.error("Failed to remove logo:", error);
+          setToastMessage("Failed to remove logo. Please try again.");
+          setShowToast1(true);
+        });
+    } catch (error) {
+      console.error("Error in handleRemoveLogo:", error);
+      setToastMessage("Error removing logo. Please try again.");
+      setShowToast1(true);
+    }
+  };
+
+  // Logo modal functions
+  const fetchUserLogos = async () => {
+    if (!cloudService.isAuthenticated()) {
+      return;
+    }
+
+    setIsLoadingLogos(true);
+    try {
+      const logos = await cloudService.getLogos();
+      setUserLogos(logos);
+    } catch (error) {
+      console.error("Failed to fetch logos:", error);
+      setToastMessage("Failed to fetch logos");
+      setShowToast1(true);
+    } finally {
+      setIsLoadingLogos(false);
+    }
+  };
+
+  const handleLogoFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      // Validate file type
+      const allowedTypes = [
+        "image/png",
+        "image/jpeg",
+        "image/jpg",
+        "image/gif",
+        "image/webp",
+        "image/svg+xml",
+      ];
+      if (!allowedTypes.includes(file.type)) {
+        setToastMessage(
+          "Invalid file type. Only images are allowed (PNG, JPG, JPEG, GIF, WebP, SVG)"
+        );
+        setShowToast1(true);
+        return;
+      }
+
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        setToastMessage("File size too large. Maximum 5MB allowed");
+        setShowToast1(true);
+        return;
+      }
+
+      setSelectedLogoFile(file);
+    }
+  };
+
+  const handleUploadLogo = async () => {
+    if (!selectedLogoFile) {
+      setToastMessage("Please select a logo file");
+      setShowToast1(true);
+      return;
+    }
+
+    if (!cloudService.isAuthenticated()) {
+      setToastMessage(
+        "You're not logged in. Please login to use this feature."
+      );
+      setShowToast1(true);
+      return;
+    }
+
+    setIsUploadingLogo(true);
+    try {
+      const result = await cloudService.uploadLogo(selectedLogoFile);
+      setToastMessage("Logo uploaded successfully!");
+      setShowToast1(true);
+      setSelectedLogoFile(null);
+      // Reset file input
+      const fileInput = document.getElementById(
+        "logo-file-input"
+      ) as HTMLInputElement;
+      if (fileInput) fileInput.value = "";
+
+      // Refresh logos list
+      await fetchUserLogos();
+    } catch (error) {
+      console.error("Failed to upload logo:", error);
+      setToastMessage("Failed to upload logo. Please try again.");
+      setShowToast1(true);
+    } finally {
+      setIsUploadingLogo(false);
+    }
+  };
+
+  const handleSelectLogo = async (logoUrl: string) => {
+    try {
+      // Get the correct logo coordinates based on device type
+      const logoCoordinates = AppGeneral.getLogoCoordinates();
+      console.log("Using logo coordinates:", logoCoordinates);
+
+      // Add logo with proper coordinate object and URL
+      await AppGeneral.addLogo(logoCoordinates, logoUrl);
+
+      console.log("Logo added successfully");
+      setToastMessage("Logo added successfully!");
+      setShowToast1(true);
+      setShowLogoModal(false);
+    } catch (error) {
+      console.error("Failed to add logo:", error);
+      setToastMessage("Failed to add logo. Please try again.");
+      setShowToast1(true);
+    }
+  };
+
+  const handleDeleteLogo = async (logoId: number) => {
+    if (!cloudService.isAuthenticated()) {
+      setToastMessage(
+        "You're not logged in. Please login to use this feature."
+      );
+      setShowToast1(true);
+      return;
+    }
+
+    try {
+      await cloudService.deleteLogo(logoId);
+      setToastMessage("Logo deleted successfully!");
+      setShowToast1(true);
+      // Refresh logos list
+      await fetchUserLogos();
+    } catch (error) {
+      console.error("Failed to delete logo:", error);
+      setToastMessage("Failed to delete logo. Please try again.");
+      setShowToast1(true);
+    }
+  };
+
+  const handleDeleteConfirm = (logo: Logo) => {
+    setLogoToDelete(logo);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = async () => {
+    if (logoToDelete) {
+      await handleDeleteLogo(logoToDelete.id);
+      setShowDeleteConfirm(false);
+      setLogoToDelete(null);
     }
   };
 
@@ -661,7 +877,20 @@ const Menu: React.FC<{
       //     console.log("Email clicked");
       //   },
       // },
-
+      {
+        text: "Add Logo",
+        icon: server,
+        handler: () => {
+          handleAddLogo();
+        },
+      },
+      {
+        text: "Remove Logo",
+        icon: server,
+        handler: () => {
+          handleRemoveLogo();
+        },
+      },
       {
         text: "Save to Server",
         icon: server,
@@ -736,6 +965,226 @@ const Menu: React.FC<{
         selectInputText={selectInputText}
         // Alert control states
         showAlert11Open={showAlert11}
+      />
+
+      {/* Logo Modal */}
+      <IonModal
+        isOpen={showLogoModal}
+        onDidDismiss={() => setShowLogoModal(false)}
+      >
+        <IonHeader>
+          <IonToolbar>
+            <IonTitle>Manage Logos</IonTitle>
+            <IonButton
+              fill="clear"
+              slot="end"
+              color={isDarkMode ? "light" : "dark"}
+              onClick={() => setShowLogoModal(false)}
+            >
+              <IonIcon icon={close} />
+            </IonButton>
+          </IonToolbar>
+        </IonHeader>
+        <IonContent className="ion-padding">
+          {!cloudService.isAuthenticated() ? (
+            <div style={{ textAlign: "center", padding: "20px" }}>
+              <IonIcon icon={key} size="large" color="warning" />
+              <h3>Authentication Required</h3>
+              <p>You're not logged in. Please login to use this feature.</p>
+              <IonButton fill="outline" onClick={() => setShowLogoModal(false)}>
+                Close
+              </IonButton>
+            </div>
+          ) : (
+            <>
+              {/* Upload Section */}
+              <IonCard>
+                <IonCardHeader>
+                  <IonCardTitle>Upload New Logo</IonCardTitle>
+                </IonCardHeader>
+                <IonCardContent>
+                  <IonItem>
+                    <IonLabel position="stacked">Select Logo File</IonLabel>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      id="logo-file-input"
+                      onChange={handleLogoFileChange}
+                      style={{
+                        margin: "10px 0",
+                        padding: "10px",
+                        border: "1px solid #ccc",
+                        borderRadius: "4px",
+                        width: "100%",
+                      }}
+                    />
+                  </IonItem>
+                  {selectedLogoFile && (
+                    <IonItem>
+                      <IonLabel>
+                        <p>Selected: {selectedLogoFile.name}</p>
+                        <p>
+                          Size:{" "}
+                          {(selectedLogoFile.size / 1024 / 1024).toFixed(2)} MB
+                        </p>
+                      </IonLabel>
+                    </IonItem>
+                  )}
+                  <IonButton
+                    expand="block"
+                    disabled={!selectedLogoFile || isUploadingLogo}
+                    onClick={handleUploadLogo}
+                    style={{ marginTop: "10px" }}
+                  >
+                    {isUploadingLogo ? (
+                      <>
+                        <IonSpinner name="crescent" /> Uploading...
+                      </>
+                    ) : (
+                      <>
+                        <IonIcon icon={cloudUpload} slot="start" />
+                        Upload Logo
+                      </>
+                    )}
+                  </IonButton>
+                </IonCardContent>
+              </IonCard>
+
+              {/* Logos List Section */}
+              <IonCard>
+                <IonCardHeader>
+                  <IonCardTitle>Your Uploaded Logos</IonCardTitle>
+                </IonCardHeader>
+                <IonCardContent>
+                  {isLoadingLogos ? (
+                    <div style={{ textAlign: "center", padding: "20px" }}>
+                      <IonSpinner name="crescent" />
+                      <p>Loading logos...</p>
+                    </div>
+                  ) : userLogos.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: "20px" }}>
+                      <IonIcon icon={image} size="large" color="medium" />
+                      <p>No logos uploaded yet</p>
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: "12px",
+                        justifyContent: "flex-start",
+                        alignItems: "flex-start",
+                      }}
+                    >
+                      {userLogos.map((logo) => (
+                        <div
+                          key={logo.id}
+                          style={{
+                            position: "relative",
+                            border: "1px solid #ccc",
+                            borderRadius: "8px",
+                            padding: "8px",
+                            backgroundColor: "#f9f9f9",
+                            cursor: "pointer",
+                            transition: "all 0.2s ease",
+                            width: "120px",
+                            height: "100px",
+                            flexShrink: 0,
+                          }}
+                          onClick={() => handleSelectLogo(logo.logo_url)}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.boxShadow =
+                              "0 4px 8px rgba(0,0,0,0.2)";
+                            e.currentTarget.style.transform =
+                              "translateY(-2px)";
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.boxShadow = "none";
+                            e.currentTarget.style.transform = "translateY(0)";
+                          }}
+                        >
+                          <img
+                            src={logo.logo_url}
+                            alt={logo.filename}
+                            style={{
+                              width: "100%",
+                              height: "80px",
+                              objectFit: "contain",
+                              borderRadius: "4px",
+                            }}
+                          />
+                          <IonButton
+                            fill="clear"
+                            size="small"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteConfirm(logo);
+                            }}
+                            style={{
+                              position: "absolute",
+                              top: "-5px",
+                              right: "-5px",
+                              minHeight: "24px",
+                              minWidth: "24px",
+                              "--padding-start": "0",
+                              "--padding-end": "0",
+                              "--padding-top": "0",
+                              "--padding-bottom": "0",
+                              backgroundColor: isDarkMode
+                                ? "rgba(0, 0, 0, 0.8)"
+                                : "rgba(255, 255, 255, 0.9)",
+                              borderRadius: "50%",
+                              boxShadow: "0 2px 4px rgba(0,0,0,0.3)",
+                              border: isDarkMode
+                                ? "1px solid rgba(255, 255, 255, 0.2)"
+                                : "1px solid rgba(0, 0, 0, 0.1)",
+                              "--color": "#dc3545",
+                            }}
+                          >
+                            <IonIcon
+                              icon={closeCircle}
+                              size="small"
+                              style={{
+                                color: "#dc3545 !important",
+                                fill: "#dc3545 !important",
+                                filter: isDarkMode
+                                  ? "drop-shadow(0 1px 2px rgba(0,0,0,0.8))"
+                                  : "drop-shadow(0 1px 2px rgba(255,255,255,0.8))",
+                              }}
+                            />
+                          </IonButton>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </IonCardContent>
+              </IonCard>
+            </>
+          )}
+        </IonContent>
+      </IonModal>
+
+      {/* Delete Confirmation Alert */}
+      <IonAlert
+        isOpen={showDeleteConfirm}
+        onDidDismiss={() => setShowDeleteConfirm(false)}
+        header="Delete Logo"
+        message={`Are you sure you want to delete "${logoToDelete?.filename}"? This will remove access to it wherever this logo is being used in your files.`}
+        buttons={[
+          {
+            text: "Cancel",
+            role: "cancel",
+            handler: () => {
+              setShowDeleteConfirm(false);
+              setLogoToDelete(null);
+            },
+          },
+          {
+            text: "Delete",
+            role: "destructive",
+            handler: confirmDelete,
+          },
+        ]}
       />
     </React.Fragment>
   );
