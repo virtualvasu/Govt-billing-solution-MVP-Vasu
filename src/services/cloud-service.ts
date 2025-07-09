@@ -1,5 +1,24 @@
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:8888"; // Use environment variable with fallback
+import { Capacitor } from "@capacitor/core";
+
+// Function to get the appropriate API base URL based on platform
+const getApiBaseUrl = (): string => {
+  // Check if we have an environment variable set
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL;
+  }
+
+  // For Capacitor native apps, we need to use the computer's IP address
+  if (Capacitor.isNativePlatform()) {
+    // TODO: Replace with your actual computer's IP address
+    // You can find your IP with: ifconfig (Linux/Mac) or ipconfig (Windows)
+    return "http://192.168.110.61:8888"; // Replace with your actual IP
+  }
+
+  // For web development, use localhost
+  return "http://localhost:8888";
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 export interface ServerFile {
   id: number;

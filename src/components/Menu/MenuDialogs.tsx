@@ -49,11 +49,9 @@ interface MenuDialogsProps {
   filePassword: string;
 
   // Handlers
-  doSaveAs: (filename: string) => void;
   doGeneratePDF: (filename: string) => void;
   doGenerateCSV: (filename: string) => void;
   doExportAllSheetsAsPDF: (filename: string) => void;
-  doSaveAsWithPassword: (filename: string, password: string) => void;
   doSaveToServer: (filename: string) => void;
   generateInvoiceFilename: () => string;
   selectInputText: (inputElement: HTMLIonInputElement) => void;
@@ -110,11 +108,9 @@ const MenuDialogs: React.FC<MenuDialogsProps> = ({
   filePassword,
 
   // Handlers
-  doSaveAs,
   doGeneratePDF,
   doGenerateCSV,
   doExportAllSheetsAsPDF,
-  doSaveAsWithPassword,
   doSaveToServer,
   generateInvoiceFilename,
   selectInputText,
@@ -144,39 +140,6 @@ const MenuDialogs: React.FC<MenuDialogsProps> = ({
         header="Save"
         message={"File " + selectedFile + " updated successfully"}
         buttons={["Ok"]}
-      />
-
-      {/* Alert 3 - Save As */}
-      <IonAlert
-        animated
-        isOpen={showAlert3}
-        onDidDismiss={() => setShowAlert3(false)}
-        header="Save As"
-        inputs={[
-          {
-            name: "filename",
-            type: "text",
-            placeholder: "Enter filename",
-            value: generateInvoiceFilename(),
-          },
-        ]}
-        buttons={[
-          {
-            text: "Ok",
-            handler: (alertData) => {
-              doSaveAs(alertData.filename);
-            },
-          },
-        ]}
-        onDidPresent={(ev) => {
-          // Select the text in the input field when dialog opens
-          const inputElement = ev.target?.querySelector(
-            "ion-input"
-          ) as HTMLIonInputElement;
-          if (inputElement) {
-            setTimeout(() => selectInputText(inputElement), 100);
-          }
-        }}
       />
 
       {/* Alert 4 - File saved successfully */}
@@ -279,58 +242,6 @@ const MenuDialogs: React.FC<MenuDialogsProps> = ({
             },
           },
         ]}
-      />
-
-      {/* Alert 9 - Password Protection */}
-      <IonAlert
-        animated
-        isOpen={showAlert9}
-        onDidDismiss={() => setShowAlert9(false)}
-        header="Password Protection"
-        message="Enter password to protect the file"
-        inputs={[
-          {
-            name: "password",
-            type: "password",
-            placeholder: "Enter password",
-          },
-          {
-            name: "filename",
-            type: "text",
-            placeholder: "Enter filename",
-            value:
-              selectedFile === "default"
-                ? generateInvoiceFilename()
-                : selectedFile,
-          },
-        ]}
-        buttons={[
-          {
-            text: "Cancel",
-            role: "cancel",
-          },
-          {
-            text: "Save",
-            handler: (alertData) => {
-              if (alertData.password && alertData.filename) {
-                doSaveAsWithPassword(alertData.filename, alertData.password);
-              } else {
-                setToastMessage("Please enter both filename and password");
-                setShowToast1(true);
-                return false; // Prevent dialog from closing
-              }
-            },
-          },
-        ]}
-        onDidPresent={(ev) => {
-          // Select the text in the filename input field when dialog opens
-          const inputElements = ev.target?.querySelectorAll(
-            "ion-input"
-          ) as NodeListOf<HTMLIonInputElement>;
-          if (inputElements && inputElements.length > 1) {
-            setTimeout(() => selectInputText(inputElements[1]), 100); // Select the filename input (second input)
-          }
-        }}
       />
 
       {/* Alert 10 - Password Input */}

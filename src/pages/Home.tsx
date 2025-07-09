@@ -9,9 +9,6 @@ import {
   IonButtons,
   IonToast,
   IonAlert,
-  IonPopover,
-  IonList,
-  IonItem,
   IonLabel,
   IonInput,
   IonItemDivider,
@@ -34,14 +31,14 @@ import {
   pencil,
   saveSharp,
   syncOutline,
-  arrowUndo,
-  arrowRedo,
   colorPaletteOutline,
   closeOutline,
   textOutline,
+  ellipsisVertical,
+  shareSharp,
 } from "ionicons/icons";
 import "./Home.css";
-import NewFile from "../components/NewFile/NewFile";
+import FileOptions from "../components/NewFile/FileOptions";
 import Menu from "../components/Menu/Menu";
 import { useTheme } from "../contexts/ThemeContext";
 import { useInvoice } from "../contexts/InvoiceContext";
@@ -73,6 +70,9 @@ const Home: React.FC = () => {
   const [activeBackgroundColor, setActiveBackgroundColor] = useState("#f4f5f8");
   const [activeFontColor, setActiveFontColor] = useState("#000000");
 
+  // Actions popover state
+  const [showActionsPopover, setShowActionsPopover] = useState(false);
+
   // Available colors for sheet themes
   const availableColors = [
     { name: "red", label: "Red", color: "#ff4444" },
@@ -84,71 +84,6 @@ const Home: React.FC = () => {
     { name: "white", label: "White", color: "#ffffff" },
     { name: "default", label: "Default", color: "#f4f5f8" },
   ];
-
-  // Helper function to handle default file logic when switching files
-  const handleDefaultFileSwitch = async (): Promise<void> => {
-    if (selectedFile === "default") {
-      try {
-        // Get current content of the default file from the live spreadsheet
-        const currentContent = AppGeneral.getSpreadsheetContent();
-
-        console.log("Checking default file content for user data...");
-        console.log(
-          "Current content preview:",
-          currentContent.substring(0, 200)
-        );
-
-        // Check if the default file has user content (pass raw content)
-        if (!isDefaultFileEmpty(currentContent)) {
-          // Save current default file as "Untitled" with timestamp
-          const untitledName = await generateUntitledFilename(store);
-          const encodedContent = encodeURIComponent(currentContent);
-
-          const now = new Date().toISOString();
-          const untitledFile = new File(
-            now,
-            now,
-            encodedContent,
-            untitledName,
-            billType
-          );
-          await store._saveFile(untitledFile);
-
-          console.log(`Saved current work as "${untitledName}"`);
-
-          // Show toast notification
-          setToastMessage(`Current work saved as "${untitledName}"`);
-          setToastColor("success");
-          setShowToast(true);
-        } else {
-          console.log(
-            "Default file appears to be empty or template-only, not saving"
-          );
-        }
-
-        // Clear the default file (reset to template)
-        const templateData = DATA["home"][device]["msc"];
-        const templateContent = encodeURIComponent(
-          JSON.stringify(templateData)
-        );
-        const now2 = new Date().toISOString();
-        const defaultFile = new File(
-          now2,
-          now2,
-          templateContent,
-          "default",
-          1 // Reset to default bill type
-        );
-        await store._saveFile(defaultFile);
-        updateBillType(1); // Reset bill type to default
-      } catch (error) {
-        console.error("Error handling default file switch:", error);
-        setToastMessage("Error saving current work");
-        setToastColor("danger");
-        setShowToast(true);
-      }
-    }
-  };
 
   const activateFooter = (footer) => {
     AppGeneral.activateFooterButton(footer);
@@ -163,11 +98,9 @@ const Home: React.FC = () => {
       if (colorMode === "background") {
         AppGeneral.changeSheetBackgroundColor(colorName);
         setActiveBackgroundColor(colorValue);
-        setToastMessage(`Sheet background color changed to ${colorName}`);
       } else {
         AppGeneral.changeSheetFontColor(colorName);
         setActiveFontColor(colorValue);
-        setToastMessage(`Sheet font color changed to ${colorName}`);
 
         // Additional CSS override for dark mode font color
         setTimeout(() => {
@@ -455,18 +388,6 @@ const Home: React.FC = () => {
 
           <IonButtons slot="end" className="ion-padding-end">
             <IonIcon
-              icon={arrowUndo}
-              size="large"
-              onClick={() => AppGeneral.undo()}
-              style={{ cursor: "pointer", marginRight: "12px" }}
-            />
-            <IonIcon
-              icon={arrowRedo}
-              size="large"
-              onClick={() => AppGeneral.redo()}
-              style={{ cursor: "pointer", marginRight: "12px" }}
-            />
-            <IonIcon
               icon={textOutline}
               size="large"
               onClick={() => AppGeneral.toggleCellFormatting()}
@@ -479,19 +400,21 @@ const Home: React.FC = () => {
               onClick={() => openColorModal("background")}
               style={{ cursor: "pointer", marginRight: "12px" }}
             />
-            <div style={{ marginRight: "12px" }}>
-              <NewFile
-                data-testid="new-file-btn"
-                handleDefaultFileSwitch={handleDefaultFileSwitch}
-              />
-            </div>
             <IonIcon
-              icon={saveSharp}
+              icon={shareSharp}
               size="large"
               onClick={(e) => {
                 setShowMenu(true);
               }}
               style={{ cursor: "pointer", marginRight: "12px" }}
+            />
+            <IonIcon
+              id="actions-trigger"
+              icon={ellipsisVertical}
+              size="large"
+              onClick={() => setShowActionsPopover(true)}
+              style={{ cursor: "pointer", marginRight: "12px" }}
+              title="More Actions"
             />
           </IonButtons>
         </IonToolbar>
@@ -577,6 +500,12 @@ const Home: React.FC = () => {
               },
             },
           ]}
+        />
+
+        {/* File Options Popover */}
+        <FileOptions
+          showActionsPopover={showActionsPopover}
+          setShowActionsPopover={setShowActionsPopover}
         />
 
         {/* Color Picker Modal */}

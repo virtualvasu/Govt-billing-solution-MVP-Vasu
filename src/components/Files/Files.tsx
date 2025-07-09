@@ -50,24 +50,17 @@ import {
 } from "ionicons/icons";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useHistory } from "react-router-dom";
-import {
-  cloudService,
-  ServerFile,
-  LoginCredentials,
-  RegisterCredentials,
-} from "../../services/cloud-service";
+import { cloudService, ServerFile } from "../../services/cloud-service";
 import { useInvoice } from "../../contexts/InvoiceContext";
-import { cleanServerFilename } from "../../utils/helper";
+import { cleanServerFilename, formatDateForFilename } from "../../utils/helper";
 
 const Files: React.FC<{
   store: Local;
   file: string;
   updateSelectedFile: Function;
   updateBillType: Function;
-  handleDefaultFileSwitch?: () => Promise<void>;
 }> = (props) => {
-  const { billType, store, updateSelectedFile, updateBillType, selectedFile } =
-    useInvoice();
+  const { selectedFile, updateSelectedFile } = useInvoice();
   const { isDarkMode } = useTheme();
   const history = useHistory();
 
@@ -77,12 +70,13 @@ const Files: React.FC<{
   const [currentServerFile, setCurrentServerFile] = useState<ServerFile | null>(
     null
   );
+  const [device] = useState(AppGeneral.getDeviceType());
+
   const [showRenameAlert, setShowRenameAlert] = useState(false);
   const [renameFileName, setRenameFileName] = useState("");
   const [currentRenameKey, setCurrentRenameKey] = useState<string | null>(null);
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
-  const [loadingFile, setLoadingFile] = useState<string | null>(null);
   const [fileSource, setFileSource] = useState<"local" | "server">("local");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<
@@ -93,8 +87,7 @@ const Files: React.FC<{
   // Server files state
   const [serverFiles, setServerFiles] = useState<ServerFile[]>([]);
   const [serverFilesLoading, setServerFilesLoading] = useState(false);
-  const [showLoginModal, setShowLoginModal] = useState(false);
-  const [showRegisterModal, setShowRegisterModal] = useState(false);
+
   const [deletingFile, setDeletingFile] = useState<number | null>(null);
   const [isSavingAllToServer, setIsSavingAllToServer] = useState(false);
   const [saveAllProgress, setSaveAllProgress] = useState("");
@@ -103,31 +96,64 @@ const Files: React.FC<{
   const [moveAllProgress, setMoveAllProgress] = useState("");
   const [moveAllCount, setMoveAllCount] = useState({ current: 0, total: 0 });
 
-  // Auth state
-  const [loginCredentials, setLoginCredentials] = useState<LoginCredentials>({
-    email: "",
-    password: "",
-  });
-  const [registerCredentials, setRegisterCredentials] =
-    useState<RegisterCredentials>({
-      name: "",
-      email: "",
-      password: "",
-    });
+  const handleSaveUnsavedChanges = async () => {
+    // Save Default File Changes if not already saved
+    if (selectedFile === "default" && key !== "default") {
+      try {
+        const defaultExists = await props.store._checkKey("default");
+        if (defaultExists) {
+          const storedDefaultFile = await props.store._getFile("default");
 
+          // Decode the stored content
+          const storedContent = decodeURIComponent(storedDefaultFile.content);
+          const msc = DATA["home"][device]["msc"];
+
+          const hasUnsavedChanges = storedContent !== JSON.stringify(msc);
+          if (hasUnsavedChanges) {
+            console.log("Default file has unsaved changes, saving...");
+            // Save the current spreadsheet content to the default file
+            const currentContent = AppGeneral.getSpreadsheetContent();
+            const now = new Date().toISOString();
+
+            const untitledFileName =
+              "Untitled-" + formatDateForFilename(new Date());
+            const updatedDefaultFile = new LocalFile(
+              now, // created
+              now, // modified
+              encodeURIComponent(currentContent), // encoded content
+              untitledFileName, // new name for the default file
+              storedDefaultFile.billType, // keep the same billType
+              false // isEncrypted = false for default files
+            );
+            await props.store._saveFile(updatedDefaultFile);
+
+            // Clear Default File...
+            const templateContent = encodeURIComponent(JSON.stringify(msc));
+            const newDefaultFile = new LocalFile(
+              now,
+              now,
+              templateContent,
+              "default",
+              1
+            );
+            await props.store._saveFile(newDefaultFile);
+            setToastMessage(`Changes Saved as ${untitledFileName}`);
+            setShowToast(true);
+          }
+        }
+      } catch (error) {
+        console.error("Error saving default file changes:", error);
+        setToastMessage("Failed to save default file changes");
+        setShowToast(true);
+      }
+    }
+  };
   // Edit local file
   const editFile = async (key: string) => {
     try {
       console.log("Attempting to edit file:", key);
 
-      // Handle default file switch if needed (only if switching to a different file)
-      if (
-        selectedFile === "default" &&
-        key !== "default" &&
-        props.handleDefaultFileSwitch
-      ) {
-        await props.handleDefaultFileSwitch();
-      }
+      await handleSaveUnsavedChanges();
 
       const data = await props.store._getFile(key);
       console.log("File data retrieved:", {
@@ -179,8 +205,6 @@ const Files: React.FC<{
 
       props.updateSelectedFile(key);
       props.updateBillType(data.billType);
-      setToastMessage(`Loaded ${key}`);
-      setShowToast(true);
       history.push("/home");
     } catch (error) {
       console.error("Error in editFile:", error);
@@ -387,42 +411,6 @@ const Files: React.FC<{
     } finally {
       setServerFilesLoading(false);
     }
-  };
-
-  const handleLogin = async () => {
-    try {
-      await cloudService.login(loginCredentials);
-      setShowLoginModal(false);
-      setLoginCredentials({ email: "", password: "" });
-      setToastMessage("Login successful");
-      setShowToast(true);
-      loadServerFiles();
-    } catch (error) {
-      setToastMessage(error instanceof Error ? error.message : "Login failed");
-      setShowToast(true);
-    }
-  };
-
-  const handleRegister = async () => {
-    try {
-      await cloudService.register(registerCredentials);
-      setShowRegisterModal(false);
-      setRegisterCredentials({ name: "", email: "", password: "" });
-      setToastMessage("Registration successful. Please login.");
-      setShowToast(true);
-    } catch (error) {
-      setToastMessage(
-        error instanceof Error ? error.message : "Registration failed"
-      );
-      setShowToast(true);
-    }
-  };
-
-  const handleLogout = () => {
-    cloudService.clearToken();
-    setServerFiles([]);
-    setToastMessage("Logged out successfully");
-    setShowToast(true);
   };
 
   const handleFileDownload = async (file: ServerFile) => {
@@ -1135,19 +1123,6 @@ const Files: React.FC<{
             </IonCardHeader>
             <IonCardContent>
               <p>Please login to access your server files.</p>
-              <div style={{ display: "flex", gap: "10px", marginTop: "16px" }}>
-                <IonButton onClick={() => setShowLoginModal(true)}>
-                  <IonIcon icon={logIn} slot="start" />
-                  Login
-                </IonButton>
-                <IonButton
-                  fill="outline"
-                  onClick={() => setShowRegisterModal(true)}
-                >
-                  <IonIcon icon={personAdd} slot="start" />
-                  Register
-                </IonButton>
-              </div>
             </IonCardContent>
           </IonCard>
         );
@@ -1410,7 +1385,12 @@ const Files: React.FC<{
   }, [fileSource]);
 
   return (
-    <IonPage className={isDarkMode ? "dark-theme" : ""}>
+    <IonPage
+      className={isDarkMode ? "dark-theme" : ""}
+      style={{
+        paddingBottom: "60px",
+      }}
+    >
       <IonHeader className="files-modal-header">
         <IonToolbar>
           <IonTitle className="files-modal-title">📁 File Manager</IonTitle>
@@ -1560,9 +1540,6 @@ const Files: React.FC<{
                 margin: "0 auto",
               }}
             >
-              <IonButton size="small" fill="outline" onClick={handleLogout}>
-                Logout
-              </IonButton>
               <IonButton
                 size="small"
                 fill="solid"
@@ -1605,124 +1582,6 @@ const Files: React.FC<{
           {fileListContent}
         </div>
       </IonContent>
-
-      {/* Login Modal */}
-      <IonModal
-        isOpen={showLoginModal}
-        onDidDismiss={() => setShowLoginModal(false)}
-      >
-        <IonHeader>
-          <IonToolbar>
-            <IonTitle>Login</IonTitle>
-            <IonButton
-              slot="end"
-              fill="clear"
-              color="light"
-              onClick={() => setShowLoginModal(false)}
-            >
-              Cancel
-            </IonButton>
-          </IonToolbar>
-        </IonHeader>
-        <IonContent>
-          <div style={{ padding: "16px" }}>
-            <IonInput
-              label="Email"
-              type="email"
-              value={loginCredentials.email}
-              onIonInput={(e) =>
-                setLoginCredentials({
-                  ...loginCredentials,
-                  email: e.detail.value!,
-                })
-              }
-              placeholder="Enter your email"
-            />
-            <IonInput
-              label="Password"
-              type="password"
-              value={loginCredentials.password}
-              onIonInput={(e) =>
-                setLoginCredentials({
-                  ...loginCredentials,
-                  password: e.detail.value!,
-                })
-              }
-              placeholder="Enter your password"
-            />
-            <div style={{ marginTop: "16px" }}>
-              <IonButton expand="block" onClick={handleLogin}>
-                Login
-              </IonButton>
-            </div>
-          </div>
-        </IonContent>
-      </IonModal>
-
-      {/* Register Modal */}
-      <IonModal
-        isOpen={showRegisterModal}
-        onDidDismiss={() => setShowRegisterModal(false)}
-      >
-        <IonHeader>
-          <IonToolbar>
-            <IonTitle>Register</IonTitle>
-            <IonButton
-              slot="end"
-              fill="clear"
-              color="light"
-              onClick={() => setShowRegisterModal(false)}
-            >
-              Cancel
-            </IonButton>
-          </IonToolbar>
-        </IonHeader>
-        <IonContent>
-          <div style={{ padding: "16px" }}>
-            <IonInput
-              label="Name"
-              type="text"
-              value={registerCredentials.name}
-              onIonInput={(e) =>
-                setRegisterCredentials({
-                  ...registerCredentials,
-                  name: e.detail.value!,
-                })
-              }
-              placeholder="Enter your name"
-            />
-            <IonInput
-              label="Email"
-              type="email"
-              value={registerCredentials.email}
-              onIonInput={(e) =>
-                setRegisterCredentials({
-                  ...registerCredentials,
-                  email: e.detail.value!,
-                })
-              }
-              placeholder="Enter your email"
-            />
-            <IonInput
-              label="Password"
-              type="password"
-              value={registerCredentials.password}
-              onIonInput={(e) =>
-                setRegisterCredentials({
-                  ...registerCredentials,
-                  password: e.detail.value!,
-                })
-              }
-              placeholder="Enter your password"
-            />
-            <div style={{ marginTop: "16px" }}>
-              <IonButton expand="block" onClick={handleRegister}>
-                Register
-              </IonButton>
-            </div>
-          </div>
-        </IonContent>
-      </IonModal>
 
       <IonAlert
         animated
