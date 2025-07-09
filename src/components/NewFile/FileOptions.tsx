@@ -46,6 +46,7 @@ import { useInvoice } from "../../contexts/InvoiceContext";
 import { formatDateForFilename } from "../../utils/helper.js";
 import { cloudService, Logo } from "../../services/cloud-service";
 import { useTheme } from "../../contexts/ThemeContext";
+import { Camera, CameraResultType, CameraSource } from "@capacitor/camera";
 
 interface FileOptionsProps {
   showActionsPopover: boolean;
@@ -76,6 +77,7 @@ const FileOptions: React.FC<FileOptionsProps> = ({
     useState<globalThis.File | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [logoToDelete, setLogoToDelete] = useState<Logo | null>(null);
+  const [processingLogoId, setProcessingLogoId] = useState<number | null>(null);
 
   const {
     selectedFile,
@@ -86,7 +88,17 @@ const FileOptions: React.FC<FileOptionsProps> = ({
     resetToDefaults,
   } = useInvoice();
 
-  /* Utility functions */
+  // Utility function to check if Capacitor Camera is available
+  const isCameraAvailable = async () => {
+    try {
+      // Check if we're running in a Capacitor environment
+      const { Capacitor } = await import("@capacitor/core");
+      return Capacitor.isNativePlatform();
+    } catch (error) {
+      return false;
+    }
+  };
+
   const _validateName = async (filename) => {
     filename = filename.trim();
     if (filename === "default" || filename === "Untitled") {
@@ -109,6 +121,7 @@ const FileOptions: React.FC<FileOptionsProps> = ({
     }
     return true;
   };
+
   const handleNewFileClick = async () => {
     try {
       setShowActionsPopover(false);
@@ -264,12 +277,21 @@ const FileOptions: React.FC<FileOptionsProps> = ({
     const file = event.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
         const logoData = e.target?.result as string;
-        // Add logo to the spreadsheet
-        AppGeneral.addLogo(logoData);
-        setToastMessage("Logo added successfully");
-        setShowToast(true);
+
+        try {
+          // Add logo to the spreadsheet using coordinates
+          const logoCoordinates = AppGeneral.getLogoCoordinates();
+          await AppGeneral.addLogo(logoCoordinates, logoData);
+
+          setToastMessage("Logo added successfully");
+          setShowToast(true);
+        } catch (error) {
+          console.error("Error adding logo:", error);
+          setToastMessage("Failed to add logo. Please try again.");
+          setShowToast(true);
+        }
       };
       reader.readAsDataURL(file);
     }
@@ -322,6 +344,229 @@ const FileOptions: React.FC<FileOptionsProps> = ({
       setShowToast(true);
     } finally {
       setIsLoadingLogos(false);
+    }
+  };
+
+  const handleCameraCapture = async () => {
+    try {
+      // Check if Capacitor is available
+      const capacitorAvailable = await isCameraAvailable();
+
+      if (!capacitorAvailable) {
+        setToastMessage(
+          "Camera not available on this platform. Please use file upload instead."
+        );
+        setShowToast(true);
+        return;
+      }
+
+      const image = await Camera.getPhoto({
+        quality: 90,
+        allowEditing: false,
+        resultType: CameraResultType.DataUrl,
+        source: CameraSource.Camera,
+      });
+
+      if (image.dataUrl) {
+        // Convert the captured image to a File object for consistency
+        const response = await fetch(image.dataUrl);
+        const blob = await response.blob();
+
+        // Determine file type from the data URL or default to jpeg
+        let mimeType = "image/jpeg";
+        let extension = "jpg";
+
+        if (image.dataUrl.startsWith("data:image/png")) {
+          mimeType = "image/png";
+          extension = "png";
+        } else if (image.dataUrl.startsWith("data:image/webp")) {
+          mimeType = "image/webp";
+          extension = "webp";
+        }
+
+        const file = new globalThis.File(
+          [blob],
+          `camera-logo-${Date.now()}.${extension}`,
+          {
+            type: mimeType,
+          }
+        );
+
+        setSelectedLogoFile(file);
+        setToastMessage("Photo captured successfully!");
+        setShowToast(true);
+      }
+    } catch (error) {
+      console.error("Error capturing photo:", error);
+
+      // More specific error handling
+      if (
+        error.message?.includes("cancelled") ||
+        error.message?.includes("canceled")
+      ) {
+        // User cancelled - don't show error
+        return;
+      }
+
+      // Handle permission errors specifically
+      if (
+        error.message?.includes("permission") ||
+        error.message?.includes("Permission")
+      ) {
+        setToastMessage(
+          "Permission denied. Please grant camera access in app settings and try again."
+        );
+        setShowToast(true);
+        return;
+      }
+
+      // For web or unsupported platforms
+      if (
+        error.message?.includes("not available") ||
+        error.message?.includes("not supported")
+      ) {
+        setToastMessage(
+          "Camera not available on this device. Please use file upload instead."
+        );
+        setShowToast(true);
+        return;
+      }
+
+      setToastMessage(
+        "Failed to capture photo. Please try again or use file upload instead."
+      );
+      setShowToast(true);
+    }
+  };
+
+  const handleGallerySelection = async () => {
+    console.log("Gallery selection started...");
+
+    try {
+      // Check if Capacitor is available
+      const capacitorAvailable = await isCameraAvailable();
+      console.log("Capacitor available:", capacitorAvailable);
+
+      if (!capacitorAvailable) {
+        console.log("Capacitor not available, falling back to file input");
+        // Fallback to file input for web
+        const fileInput = document.getElementById(
+          "logo-file-input"
+        ) as HTMLInputElement;
+        fileInput?.click();
+        return;
+      }
+
+      console.log("Attempting to open gallery...");
+      const image = await Camera.getPhoto({
+        quality: 90,
+        allowEditing: false,
+        resultType: CameraResultType.DataUrl,
+        source: CameraSource.Photos,
+      });
+
+      console.log(
+        "Gallery selection successful, image received:",
+        !!image.dataUrl
+      );
+
+      if (image.dataUrl) {
+        // Convert the selected image to a File object for consistency
+        const response = await fetch(image.dataUrl);
+        const blob = await response.blob();
+
+        // Determine file type from the data URL or default to jpeg
+        let mimeType = "image/jpeg";
+        let extension = "jpg";
+
+        if (image.dataUrl.startsWith("data:image/png")) {
+          mimeType = "image/png";
+          extension = "png";
+        } else if (image.dataUrl.startsWith("data:image/webp")) {
+          mimeType = "image/webp";
+          extension = "webp";
+        }
+
+        console.log("File type detected:", mimeType);
+
+        const file = new globalThis.File(
+          [blob],
+          `gallery-logo-${Date.now()}.${extension}`,
+          {
+            type: mimeType,
+          }
+        );
+
+        console.log("File created successfully:", file.name, file.size);
+
+        setSelectedLogoFile(file);
+        setToastMessage("Photo selected successfully!");
+        setShowToast(true);
+      }
+    } catch (error) {
+      console.error("Error selecting photo:", error);
+
+      // More specific error handling
+      if (
+        error.message?.includes("cancelled") ||
+        error.message?.includes("canceled")
+      ) {
+        console.log("User cancelled photo selection");
+        // User cancelled - don't show error
+        return;
+      }
+
+      // Handle permission errors specifically
+      if (
+        error.message?.includes("permission") ||
+        error.message?.includes("Permission")
+      ) {
+        console.log("Permission denied for gallery access");
+        setToastMessage(
+          "Permission denied. Please grant camera/gallery access in app settings and try again."
+        );
+        setShowToast(true);
+
+        // Fallback to file input
+        const fileInput = document.getElementById(
+          "logo-file-input"
+        ) as HTMLInputElement;
+        fileInput?.click();
+        return;
+      }
+
+      // For web or unsupported platforms, fallback to file input
+      if (
+        error.message?.includes("not available") ||
+        error.message?.includes("not supported")
+      ) {
+        console.log("Camera/Gallery not available, showing fallback message");
+        setToastMessage(
+          "Camera not available. Please use file upload instead."
+        );
+        setShowToast(true);
+
+        // Fallback to file input
+        const fileInput = document.getElementById(
+          "logo-file-input"
+        ) as HTMLInputElement;
+        fileInput?.click();
+        return;
+      }
+
+      console.log("Unknown error occurred:", error.message);
+      setToastMessage(
+        "Failed to select photo. Please try again or use file upload instead."
+      );
+      setShowToast(true);
+
+      // Always provide fallback option
+      setTimeout(() => {
+        const fileInput = document.getElementById(
+          "logo-file-input"
+        ) as HTMLInputElement;
+        fileInput?.click();
+      }, 2000);
     }
   };
 
@@ -383,13 +628,6 @@ const FileOptions: React.FC<FileOptionsProps> = ({
       ) as HTMLInputElement;
       if (fileInput) fileInput.value = "";
 
-      if (device !== "default") {
-        const cameraInput = document.getElementById(
-          "logo-camera-input"
-        ) as HTMLInputElement;
-        if (cameraInput) cameraInput.value = "";
-      }
-
       // Refresh logos list
       await fetchUserLogos();
     } catch (error) {
@@ -401,14 +639,82 @@ const FileOptions: React.FC<FileOptionsProps> = ({
     }
   };
 
-  const handleSelectLogo = async (logoUrl: string) => {
+  const handleApplyDirectly = async () => {
+    if (!selectedLogoFile) {
+      setToastMessage("Please select a logo file");
+      setShowToast(true);
+      return;
+    }
+
+    setIsUploadingLogo(true);
     try {
+      // Convert selected file to base64
+      const logoData = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const result = e.target?.result as string;
+          resolve(result);
+        };
+        reader.onerror = () => reject(new Error("Failed to read file"));
+        reader.readAsDataURL(selectedLogoFile);
+      });
+
+      // Get the correct logo coordinates based on device type
+      const logoCoordinates = AppGeneral.getLogoCoordinates();
+      console.log("Using logo coordinates for direct apply:", logoCoordinates);
+
+      // Add logo directly to the spreadsheet
+      await AppGeneral.addLogo(logoCoordinates, logoData);
+
+      setToastMessage("Logo applied directly to invoice!");
+      setShowToast(true);
+      setSelectedLogoFile(null);
+
+      // Reset file inputs
+      const fileInput = document.getElementById(
+        "logo-file-input"
+      ) as HTMLInputElement;
+      if (fileInput) fileInput.value = "";
+
+      // Close the modal
+      setShowLogoModal(false);
+    } catch (error) {
+      console.error("Failed to apply logo directly:", error);
+      setToastMessage("Failed to apply logo. Please try again.");
+      setShowToast(true);
+    } finally {
+      setIsUploadingLogo(false);
+    }
+  };
+
+  const handleSelectLogo = async (logo: Logo) => {
+    try {
+      setProcessingLogoId(logo.id);
+
+      let logoData: string;
+
+      try {
+        // Try to convert URL to base64 using the cloud service
+        const conversionResult = await cloudService.convertUrlToBase64(
+          logo.logo_url
+        );
+        logoData = conversionResult.data_url; // Use the full data URL format
+        console.log("Logo successfully converted to base64");
+        setToastMessage("Logo converted successfully!");
+        setShowToast(true);
+      } catch (conversionError) {
+        console.warn("Failed to convert logo to base64:", conversionError);
+        setToastMessage("Failed to Fetch Logo");
+        setShowToast(true);
+        return;
+      }
+
       // Get the correct logo coordinates based on device type
       const logoCoordinates = AppGeneral.getLogoCoordinates();
       console.log("Using logo coordinates:", logoCoordinates);
 
-      // Add logo with proper coordinate object and URL
-      await AppGeneral.addLogo(logoCoordinates, logoUrl);
+      // Add logo with proper coordinate object and logo data (base64 or URL)
+      await AppGeneral.addLogo(logoCoordinates, logoData);
 
       console.log("Logo added successfully");
       setToastMessage("Logo added successfully!");
@@ -418,6 +724,8 @@ const FileOptions: React.FC<FileOptionsProps> = ({
       console.error("Failed to add logo:", error);
       setToastMessage("Failed to add logo. Please try again.");
       setShowToast(true);
+    } finally {
+      setProcessingLogoId(null);
     }
   };
 
@@ -605,221 +913,282 @@ const FileOptions: React.FC<FileOptionsProps> = ({
           </IonToolbar>
         </IonHeader>
         <IonContent className="ion-padding">
-          {!cloudService.isAuthenticated() ? (
-            <div style={{ textAlign: "center", padding: "20px" }}>
-              <IonIcon icon={key} size="large" color="warning" />
-              <h3>Authentication Required</h3>
-              <p>You're not logged in. Please login to use this feature.</p>
-              <IonButton fill="outline" onClick={() => setShowLogoModal(false)}>
-                Close
-              </IonButton>
-            </div>
-          ) : (
-            <>
-              {/* Upload Section */}
-              <IonCard>
-                <IonCardHeader>
-                  <IonCardTitle>Upload New Logo</IonCardTitle>
-                </IonCardHeader>
-                <IonCardContent>
-                  <IonGrid>
+          {/* Upload Section - Always visible */}
+          <IonCard>
+            <IonCardHeader>
+              <IonCardTitle>Upload New Logo</IonCardTitle>
+            </IonCardHeader>
+            <IonCardContent>
+              <IonGrid>
+                <IonRow>
+                  <IonCol size={device === "default" ? "12" : "6"}>
+                    <IonButton
+                      expand="block"
+                      fill="outline"
+                      onClick={() => {
+                        if (device === "default") {
+                          // Use traditional file input for desktop/web
+                          const fileInput = document.getElementById(
+                            "logo-file-input"
+                          ) as HTMLInputElement;
+                          fileInput?.click();
+                        } else {
+                          // Use Capacitor gallery selection for mobile (includes fallback)
+                          handleGallerySelection();
+                        }
+                      }}
+                    >
+                      <IonIcon icon={image} slot="start" />
+                      Choose File
+                    </IonButton>
+                  </IonCol>
+                  {device !== "default" && (
+                    <IonCol size="6">
+                      <IonButton
+                        expand="block"
+                        fill="outline"
+                        onClick={handleCameraCapture}
+                      >
+                        <IonIcon icon={cameraOutline} slot="start" />
+                        Camera
+                      </IonButton>
+                    </IonCol>
+                  )}
+                </IonRow>
+              </IonGrid>
+
+              {/* Hidden inputs */}
+              <input
+                type="file"
+                accept="image/*"
+                id="logo-file-input"
+                onChange={handleLogoFileChange}
+                style={{ display: "none" }}
+              />
+
+              {selectedLogoFile && (
+                <IonItem>
+                  <IonLabel>
+                    <p>Selected: {selectedLogoFile.name}</p>
+                    <p>
+                      Size: {(selectedLogoFile.size / 1024 / 1024).toFixed(2)}{" "}
+                      MB
+                    </p>
+                  </IonLabel>
+                </IonItem>
+              )}
+
+              {/* Action buttons for selected file */}
+              {selectedLogoFile && (
+                <>
+                  <IonGrid style={{ marginTop: "10px" }}>
                     <IonRow>
-                      <IonCol size={device === "default" ? "12" : "6"}>
+                      <IonCol size="6">
                         <IonButton
                           expand="block"
                           fill="outline"
-                          onClick={() => {
-                            const fileInput = document.getElementById(
-                              "logo-file-input"
-                            ) as HTMLInputElement;
-                            fileInput?.click();
-                          }}
+                          disabled={isUploadingLogo}
+                          onClick={handleApplyDirectly}
                         >
-                          <IonIcon icon={image} slot="start" />
-                          Choose File
+                          <IonIcon icon={imageOutline} slot="start" />
+                          Apply Directly
                         </IonButton>
                       </IonCol>
-                      {device !== "default" && (
-                        <IonCol size="6">
-                          <IonButton
-                            expand="block"
-                            fill="outline"
-                            onClick={() => {
-                              const cameraInput = document.getElementById(
-                                "logo-camera-input"
-                              ) as HTMLInputElement;
-                              cameraInput?.click();
-                            }}
-                          >
-                            <IonIcon icon={cameraOutline} slot="start" />
-                            Camera
-                          </IonButton>
-                        </IonCol>
-                      )}
+                      <IonCol size="6">
+                        <IonButton
+                          expand="block"
+                          disabled={
+                            isUploadingLogo || !cloudService.isAuthenticated()
+                          }
+                          onClick={handleUploadLogo}
+                        >
+                          {isUploadingLogo ? (
+                            <>
+                              <IonSpinner name="crescent" /> Uploading...
+                            </>
+                          ) : (
+                            <>
+                              <IonIcon icon={cloudUpload} slot="start" />
+                              Save to Server
+                            </>
+                          )}
+                        </IonButton>
+                      </IonCol>
                     </IonRow>
                   </IonGrid>
 
-                  {/* Hidden inputs */}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    id="logo-file-input"
-                    onChange={handleLogoFileChange}
-                    style={{ display: "none" }}
-                  />
-                  {device !== "default" && (
-                    <input
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      id="logo-camera-input"
-                      onChange={handleLogoFileChange}
-                      style={{ display: "none" }}
-                    />
-                  )}
-
-                  {selectedLogoFile && (
-                    <IonItem>
-                      <IonLabel>
-                        <p>Selected: {selectedLogoFile.name}</p>
-                        <p>
-                          Size:{" "}
-                          {(selectedLogoFile.size / 1024 / 1024).toFixed(2)} MB
-                        </p>
-                      </IonLabel>
-                    </IonItem>
-                  )}
-                  <IonButton
-                    expand="block"
-                    disabled={!selectedLogoFile || isUploadingLogo}
-                    onClick={handleUploadLogo}
-                    style={{ marginTop: "10px" }}
+                  {/* Help text for button actions */}
+                  <div
+                    style={{
+                      marginTop: "15px",
+                      fontSize: "0.9em",
+                      color: "var(--ion-color-medium)",
+                    }}
                   >
-                    {isUploadingLogo ? (
-                      <>
-                        <IonSpinner name="crescent" /> Uploading...
-                      </>
-                    ) : (
-                      <>
-                        <IonIcon icon={cloudUpload} slot="start" />
-                        Upload Logo
-                      </>
+                    <p style={{ margin: "5px 0" }}>
+                      <strong>Apply Directly:</strong> Use the logo immediately
+                      on this invoice
+                    </p>
+                    <p style={{ margin: "5px 0" }}>
+                      <strong>Save to Server:</strong>{" "}
+                      {cloudService.isAuthenticated()
+                        ? "Upload to cloud for reuse across devices"
+                        : "Please login to save logos to server"}
+                    </p>
+                    {device !== "default" && (
+                      <p
+                        style={{
+                          margin: "5px 0",
+                          fontSize: "0.8em",
+                          fontStyle: "italic",
+                        }}
+                      >
+                        <strong>Note:</strong> Camera and photo gallery access
+                        powered by Capacitor for better mobile experience
+                      </p>
                     )}
-                  </IonButton>
-                </IonCardContent>
-              </IonCard>
+                  </div>
+                </>
+              )}
+            </IonCardContent>
+          </IonCard>
 
-              {/* Logos List Section */}
-              <IonCard>
-                <IonCardHeader>
-                  <IonCardTitle>Your Uploaded Logos</IonCardTitle>
-                </IonCardHeader>
-                <IonCardContent>
-                  {isLoadingLogos ? (
-                    <div style={{ textAlign: "center", padding: "20px" }}>
-                      <IonSpinner name="crescent" />
-                      <p>Loading logos...</p>
-                    </div>
-                  ) : userLogos.length === 0 ? (
-                    <div style={{ textAlign: "center", padding: "20px" }}>
-                      <IonIcon icon={image} size="large" color="medium" />
-                      <p>No logos uploaded yet</p>
-                    </div>
-                  ) : (
+          {/* Logos List Section - Now with authentication check */}
+          <IonCard>
+            <IonCardHeader>
+              <IonCardTitle>Your Uploaded Logos</IonCardTitle>
+            </IonCardHeader>
+            <IonCardContent>
+              {!cloudService.isAuthenticated() ? (
+                <div style={{ textAlign: "center", padding: "20px" }}>
+                  <IonIcon icon={key} size="large" color="warning" />
+                  <h3>Please login to save your logos</h3>
+                  <p>You can still apply logos directly without logging in</p>
+                </div>
+              ) : isLoadingLogos ? (
+                <div style={{ textAlign: "center", padding: "20px" }}>
+                  <IonSpinner name="crescent" />
+                  <p>Loading logos...</p>
+                </div>
+              ) : userLogos.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "20px" }}>
+                  <IonIcon icon={image} size="large" color="medium" />
+                  <p>No logos uploaded yet</p>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: "12px",
+                    justifyContent: "flex-start",
+                    alignItems: "flex-start",
+                  }}
+                >
+                  {userLogos.map((logo) => (
                     <div
+                      key={logo.id}
                       style={{
-                        display: "flex",
-                        flexWrap: "wrap",
-                        gap: "12px",
-                        justifyContent: "flex-start",
-                        alignItems: "flex-start",
+                        position: "relative",
+                        border: "1px solid #ccc",
+                        borderRadius: "8px",
+                        padding: "8px",
+                        backgroundColor: "#f9f9f9",
+                        cursor: "pointer",
+                        transition: "all 0.2s ease",
+                        width: "120px",
+                        height: "100px",
+                        flexShrink: 0,
+                      }}
+                      onClick={() => handleSelectLogo(logo)}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.boxShadow =
+                          "0 4px 8px rgba(0,0,0,0.2)";
+                        e.currentTarget.style.transform = "translateY(-2px)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.boxShadow = "none";
+                        e.currentTarget.style.transform = "translateY(0)";
                       }}
                     >
-                      {userLogos.map((logo) => (
+                      <img
+                        src={logo.logo_url}
+                        alt={logo.filename}
+                        style={{
+                          width: "100%",
+                          height: "80px",
+                          objectFit: "contain",
+                          borderRadius: "4px",
+                        }}
+                      />
+
+                      {/* Processing overlay */}
+                      {processingLogoId === logo.id && (
                         <div
-                          key={logo.id}
                           style={{
-                            position: "relative",
-                            border: "1px solid #ccc",
+                            position: "absolute",
+                            top: "0",
+                            left: "0",
+                            right: "0",
+                            bottom: "0",
+                            backgroundColor: "rgba(0, 0, 0, 0.5)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
                             borderRadius: "8px",
-                            padding: "8px",
-                            backgroundColor: "#f9f9f9",
-                            cursor: "pointer",
-                            transition: "all 0.2s ease",
-                            width: "120px",
-                            height: "100px",
-                            flexShrink: 0,
-                          }}
-                          onClick={() => handleSelectLogo(logo.logo_url)}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.boxShadow =
-                              "0 4px 8px rgba(0,0,0,0.2)";
-                            e.currentTarget.style.transform =
-                              "translateY(-2px)";
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.boxShadow = "none";
-                            e.currentTarget.style.transform = "translateY(0)";
+                            zIndex: 10,
                           }}
                         >
-                          <img
-                            src={logo.logo_url}
-                            alt={logo.filename}
-                            style={{
-                              width: "100%",
-                              height: "80px",
-                              objectFit: "contain",
-                              borderRadius: "4px",
-                            }}
-                          />
-                          <IonButton
-                            fill="clear"
-                            size="small"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteConfirm(logo);
-                            }}
-                            style={{
-                              position: "absolute",
-                              top: "-5px",
-                              right: "-5px",
-                              minHeight: "24px",
-                              minWidth: "24px",
-                              "--padding-start": "0",
-                              "--padding-end": "0",
-                              "--padding-top": "0",
-                              "--padding-bottom": "0",
-                              backgroundColor: isDarkMode
-                                ? "rgba(0, 0, 0, 0.8)"
-                                : "rgba(255, 255, 255, 0.9)",
-                              borderRadius: "50%",
-                              boxShadow: "0 2px 4px rgba(0,0,0,0.3)",
-                              border: isDarkMode
-                                ? "1px solid rgba(255, 255, 255, 0.2)"
-                                : "1px solid rgba(0, 0, 0, 0.1)",
-                              "--color": "#dc3545",
-                            }}
-                          >
-                            <IonIcon
-                              icon={closeCircle}
-                              size="small"
-                              style={{
-                                color: "#dc3545 !important",
-                                fill: "#dc3545 !important",
-                                filter: isDarkMode
-                                  ? "drop-shadow(0 1px 2px rgba(0,0,0,0.8))"
-                                  : "drop-shadow(0 1px 2px rgba(255,255,255,0.8))",
-                              }}
-                            />
-                          </IonButton>
+                          <IonSpinner name="crescent" color="light" />
                         </div>
-                      ))}
+                      )}
+
+                      <IonButton
+                        fill="clear"
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteConfirm(logo);
+                        }}
+                        style={{
+                          position: "absolute",
+                          top: "-5px",
+                          right: "-5px",
+                          minHeight: "24px",
+                          minWidth: "24px",
+                          "--padding-start": "0",
+                          "--padding-end": "0",
+                          "--padding-top": "0",
+                          "--padding-bottom": "0",
+                          backgroundColor: isDarkMode
+                            ? "rgba(0, 0, 0, 0.8)"
+                            : "rgba(255, 255, 255, 0.9)",
+                          borderRadius: "50%",
+                          boxShadow: "0 2px 4px rgba(0,0,0,0.3)",
+                          border: isDarkMode
+                            ? "1px solid rgba(255, 255, 255, 0.2)"
+                            : "1px solid rgba(0, 0, 0, 0.1)",
+                          "--color": "#dc3545",
+                        }}
+                      >
+                        <IonIcon
+                          icon={closeCircle}
+                          size="small"
+                          style={{
+                            color: "#dc3545 !important",
+                            fill: "#dc3545 !important",
+                            filter: isDarkMode
+                              ? "drop-shadow(0 1px 2px rgba(0,0,0,0.8))"
+                              : "drop-shadow(0 1px 2px rgba(255,255,255,0.8))",
+                          }}
+                        />
+                      </IonButton>
                     </div>
-                  )}
-                </IonCardContent>
-              </IonCard>
-            </>
-          )}
+                  ))}
+                </div>
+              )}
+            </IonCardContent>
+          </IonCard>
         </IonContent>
       </IonModal>
 

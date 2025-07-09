@@ -111,6 +111,7 @@ const Menu: React.FC<{
 
       // Get the current HTML content from the spreadsheet
       const htmlContent = AppGeneral.getCurrentHTMLContent();
+      console.log(htmlContent);
 
       if (!htmlContent || htmlContent.trim() === "") {
         setToastMessage("No content available to export as PDF");

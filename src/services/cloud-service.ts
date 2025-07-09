@@ -374,6 +374,49 @@ class CloudService {
     const data = await response.json();
     return data.logo;
   }
+
+  async convertUrlToBase64(imageUrl: string): Promise<{
+    success: boolean;
+    base64: string;
+    data_url: string;
+    content_type: string;
+    file_size: number;
+    message: string;
+  }> {
+    const response = await fetch(`${API_BASE_URL}/logos/url-to-base64`, {
+      method: "POST",
+      headers: this.getHeaders(),
+      body: JSON.stringify({ image_url: imageUrl }),
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        this.clearToken();
+        throw new Error("Authentication required");
+      }
+
+      // Handle specific error cases from the API
+      const error = await response.json().catch(() => ({}));
+
+      if (response.status === 400) {
+        // Check if it's a CORS-related error or other client errors
+        if (error.error && error.error.includes("CORS")) {
+          const corsError = new Error("CORS_ERROR");
+          corsError.message = "CORS_ERROR";
+          throw corsError;
+        }
+        throw new Error(error.error || "Invalid request");
+      }
+
+      if (response.status === 408) {
+        throw new Error("Request timeout. URL took too long to respond");
+      }
+
+      throw new Error(error.error || "Failed to convert URL to base64");
+    }
+
+    return await response.json();
+  }
 }
 
 export const cloudService = new CloudService();

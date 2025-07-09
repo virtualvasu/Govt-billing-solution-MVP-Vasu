@@ -7,6 +7,14 @@ const config: CapacitorConfig = {
   server: {
     androidScheme: "https",
   },
+  plugins: {
+    Camera: {
+      android: {
+        // Request runtime permissions for camera and gallery access
+        requestPermissions: true,
+      },
+    },
+  },
 };
 
 export default config;

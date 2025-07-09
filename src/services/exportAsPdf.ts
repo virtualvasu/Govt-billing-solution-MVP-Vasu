@@ -76,6 +76,48 @@ export const exportHTMLAsPDF = async (
 
     onProgress?.("Adding content to PDF...");
 
+    // Get current date for header
+    const currentDate = new Date();
+    const formattedDate =
+      currentDate.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }) +
+      " " +
+      currentDate.toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      });
+
+    let pageNumber = 1;
+
+    // Function to add header and footer to current page
+    const addHeaderFooter = (pdf: jsPDF, pageNum: number) => {
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+
+      // Set font size and color for headers/footers
+      pdf.setFontSize(8);
+      pdf.setTextColor(100, 100, 100); // Gray color
+
+      // Add date at top left
+      pdf.text(formattedDate, margin, 8);
+
+      // Add website URL at bottom left
+      const websiteUrl = window.location.origin;
+      pdf.text(websiteUrl, margin, pageHeight - 5);
+
+      // Add page number at bottom right
+      const pageText = `${pageNum}`;
+      const pageTextWidth = pdf.getTextWidth(pageText);
+      pdf.text(pageText, pageWidth - margin - pageTextWidth, pageHeight - 5);
+
+      // Reset text color for content
+      pdf.setTextColor(0, 0, 0);
+    };
+
     // Add first page
     pdf.addImage(
       canvas.toDataURL("image/png"),
@@ -88,12 +130,17 @@ export const exportHTMLAsPDF = async (
       "FAST"
     );
 
+    // Add header and footer to first page
+    addHeaderFooter(pdf, pageNumber);
+
     heightLeft -= pageHeight;
 
     // Add additional pages if needed
     while (heightLeft >= 0) {
       position = heightLeft - imgHeight + margin;
       pdf.addPage();
+      pageNumber++;
+
       pdf.addImage(
         canvas.toDataURL("image/png"),
         "PNG",
@@ -104,6 +151,10 @@ export const exportHTMLAsPDF = async (
         undefined,
         "FAST"
       );
+
+      // Add header and footer to each page
+      addHeaderFooter(pdf, pageNumber);
+
       heightLeft -= pageHeight;
     }
 

@@ -20,6 +20,7 @@ import {
   IonCardContent,
   IonSegment,
   IonSegmentButton,
+  isPlatform,
 } from "@ionic/react";
 import { APP_NAME, DATA } from "../app-data";
 import * as AppGeneral from "../components/socialcalc/index.js";
@@ -351,14 +352,22 @@ const Home: React.FC = () => {
     >
       <IonHeader>
         <IonToolbar color="primary">
-          <IonTitle slot="start" className="editing-title">
+          <IonButtons slot="start" className="editing-title">
             <div style={{ display: "flex", alignItems: "center" }}>
               <IonIcon
                 icon={pencil}
                 size="medium"
                 style={{ marginRight: "8px" }}
               />
-              <span>{selectedFile}</span>
+              {isPlatform("mobile") || isPlatform("hybrid") ? (
+                <span title={selectedFile}>
+                  {selectedFile.length > 15
+                    ? `${selectedFile.substring(0, 15)}...`
+                    : selectedFile}
+                </span>
+              ) : (
+                <span>{selectedFile}</span>
+              )}
               {selectedFile !== "default" && (
                 <IonButton
                   fill="clear"
@@ -366,7 +375,6 @@ const Home: React.FC = () => {
                   onClick={handleAutoSave}
                   disabled={autoSaveTimer !== null}
                   style={{
-                    marginLeft: "12px",
                     minWidth: "auto",
                     height: "32px",
                   }}
@@ -384,9 +392,12 @@ const Home: React.FC = () => {
                 </IonButton>
               )}
             </div>
-          </IonTitle>
+          </IonButtons>
 
-          <IonButtons slot="end" className="ion-padding-end">
+          <IonButtons
+            slot="end"
+            className={isPlatform("desktop") && "ion-padding-end"}
+          >
             <IonIcon
               icon={textOutline}
               size="large"
