@@ -13,6 +13,7 @@ interface MenuDialogsProps {
   showAlert9: boolean;
   showAlert10: boolean;
   showAlert11: boolean;
+  showAlert12: boolean; // For server PDF filename
 
   // Alert setters
   setShowAlert1: (show: boolean) => void;
@@ -25,6 +26,7 @@ interface MenuDialogsProps {
   setShowAlert9: (show: boolean) => void;
   setShowAlert10: (show: boolean) => void;
   setShowAlert11: (show: boolean) => void;
+  setShowAlert12: (show: boolean) => void;
 
   // Toast states
   showToast1: boolean;
@@ -36,13 +38,16 @@ interface MenuDialogsProps {
   isGeneratingPDF: boolean;
   isGeneratingCSV: boolean;
   isExportingAllPDF: boolean;
+  isGeneratingServerPDF: boolean;
   setIsGeneratingPDF: (loading: boolean) => void;
   setIsGeneratingCSV: (loading: boolean) => void;
   setIsExportingAllPDF: (loading: boolean) => void;
+  setIsGeneratingServerPDF: (loading: boolean) => void;
 
   // Progress messages
   pdfProgress: string;
   exportAllProgress: string;
+  serverPdfProgress: string;
 
   // Data for dialogs
   selectedFile: string;
@@ -53,6 +58,7 @@ interface MenuDialogsProps {
   doGenerateCSV: (filename: string) => void;
   doExportAllSheetsAsPDF: (filename: string) => void;
   doSaveToServer: (filename: string) => void;
+  doGenerateServerPDF: (filename: string) => void;
   generateInvoiceFilename: () => string;
   selectInputText: (inputElement: HTMLIonInputElement) => void;
 
@@ -72,6 +78,7 @@ const MenuDialogs: React.FC<MenuDialogsProps> = ({
   showAlert9,
   showAlert10,
   showAlert11,
+  showAlert12,
 
   // Alert setters
   setShowAlert1,
@@ -84,6 +91,7 @@ const MenuDialogs: React.FC<MenuDialogsProps> = ({
   setShowAlert9,
   setShowAlert10,
   setShowAlert11,
+  setShowAlert12,
 
   // Toast states
   showToast1,
@@ -95,13 +103,16 @@ const MenuDialogs: React.FC<MenuDialogsProps> = ({
   isGeneratingPDF,
   isGeneratingCSV,
   isExportingAllPDF,
+  isGeneratingServerPDF,
   setIsGeneratingPDF,
   setIsGeneratingCSV,
   setIsExportingAllPDF,
+  setIsGeneratingServerPDF,
 
   // Progress messages
   pdfProgress,
   exportAllProgress,
+  serverPdfProgress,
 
   // Data for dialogs
   selectedFile,
@@ -112,6 +123,7 @@ const MenuDialogs: React.FC<MenuDialogsProps> = ({
   doGenerateCSV,
   doExportAllSheetsAsPDF,
   doSaveToServer,
+  doGenerateServerPDF,
   generateInvoiceFilename,
   selectInputText,
 
@@ -325,6 +337,38 @@ const MenuDialogs: React.FC<MenuDialogsProps> = ({
         }}
       />
 
+      {/* Alert 12 - Export as PDF to Server */}
+      <IonAlert
+        animated
+        isOpen={showAlert12}
+        onDidDismiss={() => setShowAlert12(false)}
+        header="Export as PDF to Server"
+        inputs={[
+          {
+            name: "serverPdfFilename",
+            type: "text",
+            placeholder: "Enter PDF filename",
+            value: selectedFile || "invoice",
+          },
+        ]}
+        buttons={[
+          {
+            text: "Cancel",
+            role: "cancel",
+          },
+          {
+            text: "Generate",
+            handler: (alertData) => {
+              const filename =
+                alertData.serverPdfFilename?.trim() ||
+                selectedFile ||
+                "invoice";
+              doGenerateServerPDF(filename);
+            },
+          },
+        ]}
+      />
+
       {/* Toast */}
       <IonToast
         animated
@@ -375,6 +419,13 @@ const MenuDialogs: React.FC<MenuDialogsProps> = ({
         isOpen={isExportingAllPDF}
         message={exportAllProgress || "Exporting all sheets as PDF..."}
         onDidDismiss={() => setIsExportingAllPDF(false)}
+      />
+
+      {/* Loading - Server PDF Generation */}
+      <IonLoading
+        isOpen={isGeneratingServerPDF}
+        message={serverPdfProgress || "Generating PDF on server..."}
+        onDidDismiss={() => setIsGeneratingServerPDF(false)}
       />
     </React.Fragment>
   );

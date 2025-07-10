@@ -44,13 +44,16 @@ const Menu: React.FC<{
   const [showAlert9, setShowAlert9] = useState(false); // For password protection
   const [showAlert10, setShowAlert10] = useState(false); // For password input when loading
   const [showAlert11, setShowAlert11] = useState(false); // For server save filename
+  const [showAlert12, setShowAlert12] = useState(false); // For server PDF filename
   const [showToast1, setShowToast1] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [isGeneratingCSV, setIsGeneratingCSV] = useState(false);
   const [isExportingAllPDF, setIsExportingAllPDF] = useState(false);
+  const [isGeneratingServerPDF, setIsGeneratingServerPDF] = useState(false);
   const [pdfProgress, setPdfProgress] = useState("");
   const [exportAllProgress, setExportAllProgress] = useState("");
+  const [serverPdfProgress, setServerPdfProgress] = useState("");
   const [passwordProtect, setPasswordProtect] = useState(false);
   const [filePassword, setFilePassword] = useState("");
   const [device] = useState(AppGeneral.getDeviceType());
@@ -442,6 +445,82 @@ const Menu: React.FC<{
     }
   };
 
+  /**
+   * Generate PDF on server using HTML to PDF API
+   * This function sends the current spreadsheet content as HTML to the server
+   * where it gets converted to PDF and stored in the cloud storage
+   */
+  const doGenerateServerPDF = async (filename?: string) => {
+    try {
+      setIsGeneratingServerPDF(true);
+      setServerPdfProgress("Preparing content for server PDF generation...");
+
+      // Check if user is authenticated
+      const { cloudService } = await import("../../services/cloud-service.js");
+
+      if (!cloudService.isAuthenticated()) {
+        setToastMessage(
+          "You're not logged in. Please login to use this feature."
+        );
+        setShowToast1(true);
+        setIsGeneratingServerPDF(false);
+        return;
+      }
+
+      // Get user ID
+      const userId = cloudService.getCurrentUserId();
+      if (!userId) {
+        setToastMessage("Unable to get user information. Please login again.");
+        setShowToast1(true);
+        setIsGeneratingServerPDF(false);
+        return;
+      }
+
+      // Get the current HTML content from the spreadsheet
+      const htmlContent = AppGeneral.getCurrentHTMLContent();
+      console.log("HTML content for server PDF:", htmlContent);
+
+      if (!htmlContent || htmlContent.trim() === "") {
+        setToastMessage("No content available to export as PDF");
+        setShowToast1(true);
+        setIsGeneratingServerPDF(false);
+        return;
+      }
+
+      const pdfFilename = filename || selectedFile || "invoice";
+
+      setServerPdfProgress("Uploading content to server...");
+
+      // Generate PDF on server
+      const result = await cloudService.generatePDFFromHTML(htmlContent, {
+        filename: `${pdfFilename}.pdf`,
+        userId: userId,
+        pdfOptions: {
+          "page-size": "A4",
+          "margin-top": "0.75in",
+          "margin-right": "0.75in",
+          "margin-bottom": "0.75in",
+          "margin-left": "0.75in",
+          orientation: "portrait",
+        },
+      });
+
+      setToastMessage(
+        `PDF generated and saved to server as ${result.filename}`
+      );
+      setShowToast1(true);
+    } catch (error) {
+      console.error("Error generating server PDF:", error);
+      setToastMessage(
+        error.message || "Failed to generate PDF on server. Please try again."
+      );
+      setShowToast1(true);
+    } finally {
+      setIsGeneratingServerPDF(false);
+      setServerPdfProgress("");
+    }
+  };
+
   const showPDFNameDialog = () => {
     setShowAlert6(true);
   };
@@ -452,6 +531,10 @@ const Menu: React.FC<{
 
   const showExportAllPDFNameDialog = () => {
     setShowAlert8(true);
+  };
+
+  const showServerPDFNameDialog = () => {
+    setShowAlert12(true);
   };
 
   const doSaveToServer = async (filename) => {
@@ -580,6 +663,14 @@ const Menu: React.FC<{
           console.log("Export All Sheets as PDF clicked");
         },
       },
+      {
+        text: "Export as PDF to Server",
+        icon: cloudUpload,
+        handler: () => {
+          showServerPDFNameDialog();
+          console.log("Export as PDF to Server clicked");
+        },
+      },
       // {
       //   text: "Email",
       //   icon: mail,
@@ -622,6 +713,7 @@ const Menu: React.FC<{
         showAlert9={showAlert9}
         showAlert10={showAlert10}
         showAlert11={showAlert11}
+        showAlert12={showAlert12}
         // Alert setters
         setShowAlert1={setShowAlert1}
         setShowAlert2={setShowAlert2}
@@ -633,6 +725,7 @@ const Menu: React.FC<{
         setShowAlert9={setShowAlert9}
         setShowAlert10={setShowAlert10}
         setShowAlert11={setShowAlert11}
+        setShowAlert12={setShowAlert12}
         // Toast states
         showToast1={showToast1}
         setShowToast1={setShowToast1}
@@ -645,9 +738,12 @@ const Menu: React.FC<{
         setIsGeneratingCSV={setIsGeneratingCSV}
         isExportingAllPDF={isExportingAllPDF}
         setIsExportingAllPDF={setIsExportingAllPDF}
+        isGeneratingServerPDF={isGeneratingServerPDF}
+        setIsGeneratingServerPDF={setIsGeneratingServerPDF}
         // Progress messages
         pdfProgress={pdfProgress}
         exportAllProgress={exportAllProgress}
+        serverPdfProgress={serverPdfProgress}
         // Data for dialogs
         selectedFile={selectedFile}
         filePassword={filePassword}
@@ -656,6 +752,7 @@ const Menu: React.FC<{
         doGenerateCSV={doGenerateCSV}
         doExportAllSheetsAsPDF={doExportAllSheetsAsPDF}
         doSaveToServer={doSaveToServer}
+        doGenerateServerPDF={doGenerateServerPDF}
         generateInvoiceFilename={generateInvoiceFilename}
         selectInputText={selectInputText}
         // Alert control states

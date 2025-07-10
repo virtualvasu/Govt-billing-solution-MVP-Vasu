@@ -29,8 +29,9 @@ export function initializeApp(data) {
   workbookcontrol.InitializeWorkBookControl();
   // alert("app: "+JSON.stringify(data));
   SocialCalc.WorkBookControlLoad(data);
+  // Fixed height setting - this could be problematic for mobile
   let ele = document.getElementById("te_griddiv");
-  ele.style.height = "1600px";
+  // ele.style.height = "1600px";
   spreadsheet.DoOnResize();
 }
 

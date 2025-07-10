@@ -221,6 +221,44 @@ const Home: React.FC = () => {
         AppGeneral.initializeApp(JSON.stringify(data));
         AppGeneral.changeSheetColor("#000000");
       }
+      // Alternative smooth scrolling implementation
+      setTimeout(() => {
+        const gridDiv = document.getElementById("te_griddiv");
+        if (gridDiv) {
+          // Force smooth scrolling CSS
+          gridDiv.style.scrollBehavior = "smooth";
+
+          // Override SocialCalc's internal scrolling
+          const tables = gridDiv.querySelectorAll("table");
+          tables.forEach((table) => {
+            table.style.scrollBehavior = "smooth";
+          });
+
+          // Intercept keyboard navigation to use smooth scrolling
+          gridDiv.addEventListener("keydown", function (e) {
+            const step = 30; // Pixels to scroll per key press
+
+            switch (e.key) {
+              case "ArrowUp":
+                e.preventDefault();
+                gridDiv.scrollBy({ top: -step, behavior: "smooth" });
+                break;
+              case "ArrowDown":
+                e.preventDefault();
+                gridDiv.scrollBy({ top: step, behavior: "smooth" });
+                break;
+              case "ArrowLeft":
+                e.preventDefault();
+                gridDiv.scrollBy({ left: -step, behavior: "smooth" });
+                break;
+              case "ArrowRight":
+                e.preventDefault();
+                gridDiv.scrollBy({ left: step, behavior: "smooth" });
+                break;
+            }
+          });
+        }
+      }, 1000);
     };
 
     initializeApp();

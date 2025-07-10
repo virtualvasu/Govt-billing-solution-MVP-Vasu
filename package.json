@@ -17,6 +17,7 @@
     "@capacitor/camera": "^5.0.8",
     "@capacitor/core": "5.7.0",
     "@capacitor/filesystem": "^5.2.2",
+    "@capacitor/ios": "5.7.0",
     "@capacitor/preferences": "^5.0.7",
     "@capacitor/share": "^5.0.8",
     "@ionic-native/printer": "^5.36.0",

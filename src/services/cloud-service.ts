@@ -73,6 +73,46 @@ export interface UploadLogoResponse {
   message: string;
 }
 
+export interface PDFGenerationRequest {
+  html_content?: string;
+  url?: string;
+  filename?: string;
+  options?: {
+    "page-size"?: string;
+    "margin-top"?: string;
+    "margin-right"?: string;
+    "margin-bottom"?: string;
+    "margin-left"?: string;
+    orientation?: string;
+    [key: string]: any;
+  };
+  user_id: string;
+}
+
+export interface PDFGenerationResponse {
+  success: boolean;
+  file_id: number;
+  filename: string;
+  s3_key: string;
+  source_type: string;
+  size: number;
+  message: string;
+}
+
+export interface UserPDF {
+  id: number;
+  filename: string;
+  created_at: string;
+  source_type: string;
+  original_url?: string;
+}
+
+export interface PDFListResponse {
+  success: boolean;
+  count: number;
+  pdfs: UserPDF[];
+}
+
 class CloudService {
   private token: string | null = null;
 
@@ -91,6 +131,7 @@ class CloudService {
   clearToken() {
     this.token = null;
     localStorage.removeItem("server_auth_token");
+    localStorage.removeItem("user_info"); // Clear user info as well
   }
 
   private getHeaders(): HeadersInit {
@@ -122,6 +163,12 @@ class CloudService {
 
     const data = await response.json();
     this.setToken(data.token);
+
+    // Store user info for later use
+    if (data.user) {
+      localStorage.setItem("user_info", JSON.stringify(data.user));
+    }
+
     return data;
   }
 
@@ -416,6 +463,185 @@ class CloudService {
     }
 
     return await response.json();
+  }
+
+  // PDF Generation methods
+  async generatePDFFromHTML(
+    htmlContent: string,
+    options: {
+      filename?: string;
+      userId: string;
+      pdfOptions?: PDFGenerationRequest["options"];
+    }
+  ): Promise<PDFGenerationResponse> {
+    const requestData: PDFGenerationRequest = {
+      html_content: htmlContent,
+      filename: options.filename || "generated_document.pdf",
+      user_id: options.userId,
+      options: options.pdfOptions || {},
+    };
+
+    const response = await fetch(`${API_BASE_URL}/html-to-pdf/generate`, {
+      method: "POST",
+      headers: this.getHeaders(),
+      body: JSON.stringify(requestData),
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        this.clearToken();
+        throw new Error("Authentication required");
+      }
+      const error = await response.json();
+      throw new Error(error.error || "PDF generation failed");
+    }
+
+    return await response.json();
+  }
+
+  async generatePDFFromURL(
+    url: string,
+    options: {
+      filename?: string;
+      userId: string;
+      pdfOptions?: PDFGenerationRequest["options"];
+    }
+  ): Promise<PDFGenerationResponse> {
+    const requestData: PDFGenerationRequest = {
+      url: url,
+      filename: options.filename || "webpage_document.pdf",
+      user_id: options.userId,
+      options: options.pdfOptions || {},
+    };
+
+    const response = await fetch(`${API_BASE_URL}/html-to-pdf/generate`, {
+      method: "POST",
+      headers: this.getHeaders(),
+      body: JSON.stringify(requestData),
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        this.clearToken();
+        throw new Error("Authentication required");
+      }
+      const error = await response.json();
+      throw new Error(error.error || "PDF generation failed");
+    }
+
+    return await response.json();
+  }
+
+  async previewPDF(
+    htmlContent: string,
+    options?: PDFGenerationRequest["options"]
+  ): Promise<Blob> {
+    const requestData = {
+      html_content: htmlContent,
+      options: options || {},
+    };
+
+    const response = await fetch(`${API_BASE_URL}/html-to-pdf/preview`, {
+      method: "POST",
+      headers: this.getHeaders(),
+      body: JSON.stringify(requestData),
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        this.clearToken();
+        throw new Error("Authentication required");
+      }
+      const error = await response.json();
+      throw new Error(error.error || "PDF preview generation failed");
+    }
+
+    return await response.blob();
+  }
+
+  async downloadServerPDF(fileId: number): Promise<Blob> {
+    const response = await fetch(
+      `${API_BASE_URL}/html-to-pdf/download/${fileId}`,
+      {
+        method: "GET",
+        headers: this.getHeaders(),
+      }
+    );
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        this.clearToken();
+        throw new Error("Authentication required");
+      }
+      if (response.status === 404) {
+        throw new Error("PDF file not found");
+      }
+      const error = await response.json();
+      throw new Error(error.error || "PDF download failed");
+    }
+
+    return await response.blob();
+  }
+
+  async listUserPDFs(userId: string): Promise<UserPDF[]> {
+    const response = await fetch(`${API_BASE_URL}/html-to-pdf/list/${userId}`, {
+      method: "GET",
+      headers: this.getHeaders(),
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        this.clearToken();
+        throw new Error("Authentication required");
+      }
+      const error = await response.json();
+      throw new Error(error.error || "Failed to fetch PDF list");
+    }
+
+    const data = await response.json();
+    return data.pdfs;
+  }
+
+  async deleteServerPDF(
+    fileId: number
+  ): Promise<{ success: boolean; message: string }> {
+    const response = await fetch(
+      `${API_BASE_URL}/html-to-pdf/delete/${fileId}`,
+      {
+        method: "DELETE",
+        headers: this.getHeaders(),
+      }
+    );
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        this.clearToken();
+        throw new Error("Authentication required");
+      }
+      if (response.status === 404) {
+        throw new Error("PDF file not found");
+      }
+      const error = await response.json();
+      throw new Error(error.error || "PDF deletion failed");
+    }
+
+    return await response.json();
+  }
+
+  // Helper method to get user ID (you may need to adjust this based on your auth implementation)
+  getCurrentUserId(): string | null {
+    // This is a placeholder - you'll need to implement this based on how you store user info
+    // You might get this from the JWT token or store it separately after login
+    const userInfo = localStorage.getItem("user_info");
+    if (userInfo) {
+      try {
+        const parsed = JSON.parse(userInfo);
+        return parsed.id?.toString() || parsed.user?.id?.toString();
+      } catch (error) {
+        console.error("Error parsing user info:", error);
+      }
+    }
+    return null;
   }
 }
 
