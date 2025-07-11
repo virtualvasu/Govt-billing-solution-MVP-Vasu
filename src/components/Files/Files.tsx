@@ -1399,7 +1399,7 @@ const Files: React.FC<{
                 className={`custom-tab-button ${fileSource === "local" ? "active" : ""}`}
                 onClick={() => setFileSource("local")}
               >
-                🛖 Local Files
+                🏠 Local Files
               </button>
               <button
                 className={`custom-tab-button ${fileSource === "server" ? "active" : ""}`}
