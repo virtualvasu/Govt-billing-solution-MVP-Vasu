@@ -465,23 +465,24 @@ class CloudService {
     return await response.json();
   }
 
-  // PDF Generation methods
-  async generatePDFFromHTML(
+  /**
+   * Convert HTML to PDF using the new direct API endpoint
+   * Returns PDF blob directly without S3 storage
+   */
+  async convertHTMLToPDF(
     htmlContent: string,
     options: {
       filename?: string;
-      userId: string;
       pdfOptions?: PDFGenerationRequest["options"];
     }
-  ): Promise<PDFGenerationResponse> {
-    const requestData: PDFGenerationRequest = {
+  ): Promise<Blob> {
+    const requestData = {
       html_content: htmlContent,
-      filename: options.filename || "generated_document.pdf",
-      user_id: options.userId,
+      filename: options.filename || "document.pdf",
       options: options.pdfOptions || {},
     };
 
-    const response = await fetch(`${API_BASE_URL}/html-to-pdf/generate`, {
+    const response = await fetch(`${API_BASE_URL}/pdf/convert`, {
       method: "POST",
       headers: this.getHeaders(),
       body: JSON.stringify(requestData),
@@ -493,46 +494,17 @@ class CloudService {
         throw new Error("Authentication required");
       }
       const error = await response.json();
-      throw new Error(error.error || "PDF generation failed");
+      throw new Error(error.error || "PDF conversion failed");
     }
 
-    return await response.json();
+    return await response.blob();
   }
 
-  async generatePDFFromURL(
-    url: string,
-    options: {
-      filename?: string;
-      userId: string;
-      pdfOptions?: PDFGenerationRequest["options"];
-    }
-  ): Promise<PDFGenerationResponse> {
-    const requestData: PDFGenerationRequest = {
-      url: url,
-      filename: options.filename || "webpage_document.pdf",
-      user_id: options.userId,
-      options: options.pdfOptions || {},
-    };
-
-    const response = await fetch(`${API_BASE_URL}/html-to-pdf/generate`, {
-      method: "POST",
-      headers: this.getHeaders(),
-      body: JSON.stringify(requestData),
-    });
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        this.clearToken();
-        throw new Error("Authentication required");
-      }
-      const error = await response.json();
-      throw new Error(error.error || "PDF generation failed");
-    }
-
-    return await response.json();
-  }
-
-  async previewPDF(
+  /**
+   * Preview PDF using the new direct API endpoint
+   * Returns PDF blob for inline preview
+   */
+  async previewPDFDirect(
     htmlContent: string,
     options?: PDFGenerationRequest["options"]
   ): Promise<Blob> {
@@ -541,7 +513,7 @@ class CloudService {
       options: options || {},
     };
 
-    const response = await fetch(`${API_BASE_URL}/html-to-pdf/preview`, {
+    const response = await fetch(`${API_BASE_URL}/pdf/preview`, {
       method: "POST",
       headers: this.getHeaders(),
       body: JSON.stringify(requestData),
@@ -559,32 +531,15 @@ class CloudService {
     return await response.blob();
   }
 
-  async downloadServerPDF(fileId: number): Promise<Blob> {
-    const response = await fetch(
-      `${API_BASE_URL}/html-to-pdf/download/${fileId}`,
-      {
-        method: "GET",
-        headers: this.getHeaders(),
-      }
-    );
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        this.clearToken();
-        throw new Error("Authentication required");
-      }
-      if (response.status === 404) {
-        throw new Error("PDF file not found");
-      }
-      const error = await response.json();
-      throw new Error(error.error || "PDF download failed");
-    }
-
-    return await response.blob();
-  }
-
-  async listUserPDFs(userId: string): Promise<UserPDF[]> {
-    const response = await fetch(`${API_BASE_URL}/html-to-pdf/list/${userId}`, {
+  /**
+   * Check the health of the HTML to PDF service
+   */
+  async checkPDFServiceHealth(): Promise<{
+    status: string;
+    service: string;
+    message: string;
+  }> {
+    const response = await fetch(`${API_BASE_URL}/pdf/health`, {
       method: "GET",
       headers: this.getHeaders(),
     });
@@ -595,34 +550,7 @@ class CloudService {
         throw new Error("Authentication required");
       }
       const error = await response.json();
-      throw new Error(error.error || "Failed to fetch PDF list");
-    }
-
-    const data = await response.json();
-    return data.pdfs;
-  }
-
-  async deleteServerPDF(
-    fileId: number
-  ): Promise<{ success: boolean; message: string }> {
-    const response = await fetch(
-      `${API_BASE_URL}/html-to-pdf/delete/${fileId}`,
-      {
-        method: "DELETE",
-        headers: this.getHeaders(),
-      }
-    );
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        this.clearToken();
-        throw new Error("Authentication required");
-      }
-      if (response.status === 404) {
-        throw new Error("PDF file not found");
-      }
-      const error = await response.json();
-      throw new Error(error.error || "PDF deletion failed");
+      throw new Error(error.error || "PDF service health check failed");
     }
 
     return await response.json();

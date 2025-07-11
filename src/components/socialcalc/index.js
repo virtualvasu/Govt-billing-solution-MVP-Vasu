@@ -34,7 +34,6 @@ export function initializeApp(data) {
   // ele.style.height = "1600px";
   spreadsheet.DoOnResize();
 }
-
 export function activateFooterButton(index) {
   if (index === SocialCalc.oldBtnActive) return;
   var control = SocialCalc.GetCurrentWorkBookControl();

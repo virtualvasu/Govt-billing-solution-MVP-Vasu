@@ -10,6 +10,42 @@ export interface ExportOptions {
   onProgress?: (message: string) => void;
 }
 
+// Helper function to add header and footer to each page
+const addHeaderAndFooter = (pdf: jsPDF, pageNumber: number, totalPages: number) => {
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  
+  // Get current date and time
+  const now = new Date();
+  const dateTimeString = now.toLocaleString('en-US', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true
+  });
+
+  // Set font for header/footer
+  pdf.setFontSize(8);
+  pdf.setTextColor(100, 100, 100); // Gray color
+
+  // Add date/time at top left
+  pdf.text(dateTimeString, 10, 8);
+
+  // Add "Govt Invoice App" at bottom left
+  pdf.text("Govt Invoice App", 10, pageHeight - 5);
+
+  // Add page number at bottom right
+  const pageText = `Page ${pageNumber} of ${totalPages}`;
+  const pageTextWidth = pdf.getTextWidth(pageText);
+  pdf.text(pageText, pageWidth - pageTextWidth - 10, pageHeight - 5);
+
+  // Reset text color to black for content
+  pdf.setTextColor(0, 0, 0);
+};
+
 export const exportHTMLAsPDF = async (
   htmlContent: string,
   options: ExportOptions & { returnBlob?: boolean } = {}
@@ -40,7 +76,7 @@ export const exportHTMLAsPDF = async (
 
     document.body.appendChild(tempContainer);
 
-    onProgress?.("Rendering content to canvas...");
+    onProgress?.("Loading File...");
 
     // Convert HTML to canvas
     const canvas = await html2canvas(
@@ -69,54 +105,16 @@ export const exportHTMLAsPDF = async (
     // Calculate dimensions
     const imgWidth = pdf.internal.pageSize.getWidth() - margin * 2;
     const imgHeight = (canvas.height * imgWidth) / canvas.width;
-    const pageHeight = pdf.internal.pageSize.getHeight() - margin * 2;
+    const pageHeight = pdf.internal.pageSize.getHeight() - margin * 2 - 10; // Leave space for header/footer
 
     let heightLeft = imgHeight;
-    let position = margin;
+    let position = margin + 5; // Start below header space
 
     onProgress?.("Adding content to PDF...");
 
-    // Get current date for header
-    const currentDate = new Date();
-    const formattedDate =
-      currentDate.toLocaleDateString("en-US", {
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      }) +
-      " " +
-      currentDate.toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: true,
-      });
-
+    // Calculate total pages needed
+    const totalPages = Math.ceil(imgHeight / pageHeight);
     let pageNumber = 1;
-
-    // Function to add header and footer to current page
-    const addHeaderFooter = (pdf: jsPDF, pageNum: number) => {
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-
-      // Set font size and color for headers/footers
-      pdf.setFontSize(8);
-      pdf.setTextColor(100, 100, 100); // Gray color
-
-      // Add date at top left
-      pdf.text(formattedDate, margin, 8);
-
-      // Add website URL at bottom left
-      const websiteUrl = window.location.origin;
-      pdf.text(websiteUrl, margin, pageHeight - 5);
-
-      // Add page number at bottom right
-      const pageText = `${pageNum}`;
-      const pageTextWidth = pdf.getTextWidth(pageText);
-      pdf.text(pageText, pageWidth - margin - pageTextWidth, pageHeight - 5);
-
-      // Reset text color for content
-      pdf.setTextColor(0, 0, 0);
-    };
 
     // Add first page
     pdf.addImage(
@@ -125,19 +123,16 @@ export const exportHTMLAsPDF = async (
       margin,
       position,
       imgWidth,
-      imgHeight,
+      Math.min(imgHeight, pageHeight), // Don't exceed page height
       undefined,
       "FAST"
     );
-
-    // Add header and footer to first page
-    addHeaderFooter(pdf, pageNumber);
 
     heightLeft -= pageHeight;
 
     // Add additional pages if needed
     while (heightLeft >= 0) {
-      position = heightLeft - imgHeight + margin;
+      position = heightLeft - imgHeight + margin + 5; // Account for header space
       pdf.addPage();
       pageNumber++;
 
@@ -147,15 +142,19 @@ export const exportHTMLAsPDF = async (
         margin,
         position,
         imgWidth,
-        imgHeight,
+        Math.min(imgHeight, pageHeight), // Don't exceed page height
         undefined,
         "FAST"
       );
 
-      // Add header and footer to each page
-      addHeaderFooter(pdf, pageNumber);
-
       heightLeft -= pageHeight;
+    }
+
+    // Add headers and footers to all pages
+    onProgress?.("Adding headers and footers...");
+    for (let i = 1; i <= totalPages; i++) {
+      pdf.setPage(i);
+      addHeaderAndFooter(pdf, i, totalPages);
     }
 
     onProgress?.("Saving PDF file...");

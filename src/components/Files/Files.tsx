@@ -1385,34 +1385,31 @@ const Files: React.FC<{
   }, [fileSource]);
 
   return (
-    <IonPage
-      className={isDarkMode ? "dark-theme" : ""}
-      style={{
+      <div style={{
         paddingBottom: "60px",
-      }}
-    >
-      <IonHeader className="files-modal-header">
-        <IonToolbar>
-          <IonTitle className="files-modal-title">📁 File Manager</IonTitle>
-        </IonToolbar>
-      </IonHeader>
-      <IonContent>
+      }}>
+      <div >
         <div className="files-modal-content">
-          <IonSegment
-            className="smaller-segment-text"
-            value={fileSource}
-            onIonChange={(e) =>
-              setFileSource(e.detail.value as "local" | "server")
-            }
-          >
-            <IonSegmentButton value="local">
-              <IonLabel>Local Files</IonLabel>
-            </IonSegmentButton>
-            <IonSegmentButton value="server">
-              <IonLabel>Server Files</IonLabel>
-            </IonSegmentButton>
-          </IonSegment>
-          <div style={{ padding: "16px 16px 8px 16px" }}>
+         
+
+          {/* File Source Tabs */}
+          <div className="custom-tabs-container">
+            <div className="custom-tabs">
+              <button
+                className={`custom-tab-button ${fileSource === "local" ? "active" : ""}`}
+                onClick={() => setFileSource("local")}
+              >
+                🛖 Local Files
+              </button>
+              <button
+                className={`custom-tab-button ${fileSource === "server" ? "active" : ""}`}
+                onClick={() => setFileSource("server")}
+              >
+                ☁️ Server Files
+              </button>
+            </div>
+          </div>
+          <div style={{ padding: "0 16px 16px 16px" }}>
             <div
               style={{
                 display: "flex",
@@ -1581,7 +1578,7 @@ const Files: React.FC<{
         >
           {fileListContent}
         </div>
-      </IonContent>
+      </div>
 
       <IonAlert
         animated
@@ -1679,7 +1676,7 @@ const Files: React.FC<{
         duration={2000}
         position="top"
       />
-    </IonPage>
+  </div>
   );
 };
 

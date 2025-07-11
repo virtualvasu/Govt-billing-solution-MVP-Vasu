@@ -448,7 +448,7 @@ const Menu: React.FC<{
   /**
    * Generate PDF on server using HTML to PDF API
    * This function sends the current spreadsheet content as HTML to the server
-   * where it gets converted to PDF and stored in the cloud storage
+   * where it gets converted to PDF and returns it directly for download
    */
   const doGenerateServerPDF = async (filename?: string) => {
     try {
@@ -467,15 +467,6 @@ const Menu: React.FC<{
         return;
       }
 
-      // Get user ID
-      const userId = cloudService.getCurrentUserId();
-      if (!userId) {
-        setToastMessage("Unable to get user information. Please login again.");
-        setShowToast1(true);
-        setIsGeneratingServerPDF(false);
-        return;
-      }
-
       // Get the current HTML content from the spreadsheet
       const htmlContent = AppGeneral.getCurrentHTMLContent();
       console.log("HTML content for server PDF:", htmlContent);
@@ -489,12 +480,11 @@ const Menu: React.FC<{
 
       const pdfFilename = filename || selectedFile || "invoice";
 
-      setServerPdfProgress("Uploading content to server...");
+      setServerPdfProgress("Converting HTML to PDF on server...");
 
-      // Generate PDF on server
-      const result = await cloudService.generatePDFFromHTML(htmlContent, {
+      // Generate PDF using the new direct conversion API
+      const pdfBlob = await cloudService.convertHTMLToPDF(htmlContent, {
         filename: `${pdfFilename}.pdf`,
-        userId: userId,
         pdfOptions: {
           "page-size": "A4",
           "margin-top": "0.75in",
@@ -505,10 +495,81 @@ const Menu: React.FC<{
         },
       });
 
-      setToastMessage(
-        `PDF generated and saved to server as ${result.filename}`
-      );
-      setShowToast1(true);
+      setServerPdfProgress("Processing PDF for download...");
+
+      // Check if we're on a mobile device
+      if (isPlatform("hybrid") || isPlatform("mobile")) {
+        try {
+          // Convert blob to base64 for sharing on mobile
+          const reader = new FileReader();
+          reader.onloadend = async () => {
+            const base64Data = reader.result as string;
+            const base64 = base64Data.split(",")[1]; // Remove data:application/pdf;base64, prefix
+
+            try {
+              // Save to temporary file
+              const tempFile = await Filesystem.writeFile({
+                path: `${pdfFilename}.pdf`,
+                data: base64,
+                directory: Directory.Cache,
+              });
+
+              // Share the file
+              await Share.share({
+                title: `${pdfFilename}.pdf`,
+                text: "Server generated PDF ready to share",
+                url: tempFile.uri,
+                dialogTitle: "Share Server PDF",
+              });
+
+              setToastMessage(`Server PDF generated and ready to share!`);
+              setShowToast1(true);
+            } catch (shareError) {
+              console.log("Error sharing server PDF:", shareError);
+              // Fallback to direct download
+              const url = URL.createObjectURL(pdfBlob);
+              const link = document.createElement('a');
+              link.href = url;
+              link.download = `${pdfFilename}.pdf`;
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+              URL.revokeObjectURL(url);
+
+              setToastMessage(`Server PDF downloaded: ${pdfFilename}.pdf`);
+              setShowToast1(true);
+            }
+          };
+          reader.readAsDataURL(pdfBlob);
+        } catch (error) {
+          console.error("Error processing server PDF for sharing:", error);
+          // Fallback to direct download
+          const url = URL.createObjectURL(pdfBlob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = `${pdfFilename}.pdf`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+
+          setToastMessage(`Server PDF downloaded: ${pdfFilename}.pdf`);
+          setShowToast1(true);
+        }
+      } else {
+        // Desktop behavior - direct download
+        const url = URL.createObjectURL(pdfBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${pdfFilename}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+
+        setToastMessage(`Server PDF downloaded: ${pdfFilename}.pdf`);
+        setShowToast1(true);
+      }
     } catch (error) {
       console.error("Error generating server PDF:", error);
       setToastMessage(
@@ -664,11 +725,11 @@ const Menu: React.FC<{
         },
       },
       {
-        text: "Export as PDF to Server",
+        text: "Export as PDF via Server",
         icon: cloudUpload,
         handler: () => {
           showServerPDFNameDialog();
-          console.log("Export as PDF to Server clicked");
+          console.log("Export as PDF via Server clicked");
         },
       },
       // {

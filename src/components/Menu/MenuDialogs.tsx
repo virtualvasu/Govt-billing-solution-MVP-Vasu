@@ -337,12 +337,12 @@ const MenuDialogs: React.FC<MenuDialogsProps> = ({
         }}
       />
 
-      {/* Alert 12 - Export as PDF to Server */}
+      {/* Alert 12 - Export as PDF via Server */}
       <IonAlert
         animated
         isOpen={showAlert12}
         onDidDismiss={() => setShowAlert12(false)}
-        header="Export as PDF to Server"
+        header="Export as PDF via Server"
         inputs={[
           {
             name: "serverPdfFilename",
@@ -424,7 +424,7 @@ const MenuDialogs: React.FC<MenuDialogsProps> = ({
       {/* Loading - Server PDF Generation */}
       <IonLoading
         isOpen={isGeneratingServerPDF}
-        message={serverPdfProgress || "Generating PDF on server..."}
+        message={serverPdfProgress || "Converting HTML to PDF via server..."}
         onDidDismiss={() => setIsGeneratingServerPDF(false)}
       />
     </React.Fragment>
