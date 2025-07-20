@@ -16,6 +16,9 @@ import FilesPage from "./pages/FilesPage";
 import SettingsPage from "./pages/SettingsPage";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import { InvoiceProvider } from "./contexts/InvoiceContext";
+import PWAUpdatePrompt from "./components/PWAUpdatePrompt";
+import OfflineIndicator from "./components/OfflineIndicator";
+import { usePWA } from "./hooks/usePWA";
 
 /* Core CSS required for Ionic components to work properly */
 import "@ionic/react/css/core.css";
@@ -41,6 +44,7 @@ setupIonicReact();
 
 const AppContent: React.FC = () => {
   const { isDarkMode } = useTheme();
+  const { isOnline } = usePWA();
 
   return (
     <IonApp className={isDarkMode ? "dark-theme" : "light-theme"}>
@@ -49,12 +53,15 @@ const AppContent: React.FC = () => {
           <IonTabs>
             <IonRouterOutlet>
               <Route exact path="/home">
+                {!isOnline && <OfflineIndicator />}
                 <Home />
               </Route>
               <Route exact path="/files">
+                {!isOnline && <OfflineIndicator />}
                 <FilesPage />
               </Route>
               <Route exact path="/settings">
+                {!isOnline && <OfflineIndicator />}
                 <SettingsPage />
               </Route>
               <Route exact path="/">
@@ -80,6 +87,7 @@ const AppContent: React.FC = () => {
             </IonTabBar>
           </IonTabs>
         </IonReactRouter>
+        <PWAUpdatePrompt />
       </InvoiceProvider>
     </IonApp>
   );
