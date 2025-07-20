@@ -3,7 +3,7 @@ import * as AppGeneral from "../socialcalc/index.js";
 import { File, Local } from "../Storage/LocalStorage";
 import { isPlatform, IonToast, IonLoading } from "@ionic/react";
 import { EmailComposer } from "capacitor-email-composer";
-import { Printer } from "@ionic-native/printer";
+// import { Printer } from "@capacitor-community/printer"; // Temporarily disabled
 import { IonActionSheet, IonAlert } from "@ionic/react";
 import {
   saveOutline,
@@ -94,10 +94,11 @@ const Menu: React.FC<{
     return filename;
   };
 
-  const doPrint = () => {
+  const doPrint = async () => {
     if (isPlatform("hybrid")) {
-      const printer = Printer;
-      printer.print(AppGeneral.getCurrentHTMLContent());
+      // Printer functionality temporarily disabled for Ionic 8 compatibility
+      setToastMessage("Print feature is currently disabled on mobile devices.");
+      setShowToast1(true);
     } else {
       const content = AppGeneral.getCurrentHTMLContent();
       // useReactToPrint({ content: () => content });
