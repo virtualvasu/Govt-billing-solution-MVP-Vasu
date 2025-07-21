@@ -27,7 +27,6 @@
     "@types/react-router-dom": "^5.3.3",
     "aws-sdk": "^2.1692.0",
     "axios": "^1.9.0",
-    "capacitor-email-composer": "^5.0.0",
     "crypto-js": "^4.2.0",
     "html2canvas": "^1.4.1",
     "ionicons": "^7.4.0",
