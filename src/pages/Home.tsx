@@ -43,7 +43,13 @@ import FileOptions from "../components/NewFile/FileOptions";
 import Menu from "../components/Menu/Menu";
 import { useTheme } from "../contexts/ThemeContext";
 import { useInvoice } from "../contexts/InvoiceContext";
-import { isDefaultFileEmpty, generateUntitledFilename } from "../utils/helper";
+import {
+  isDefaultFileEmpty,
+  generateUntitledFilename,
+  isQuotaExceededError,
+  getQuotaExceededMessage,
+} from "../utils/helper";
+import { cloudService } from "../services/cloud-service";
 
 const Home: React.FC = () => {
   const { isDarkMode } = useTheme();
@@ -173,6 +179,7 @@ const Home: React.FC = () => {
     setSaveAsFileName("");
     setSaveAsOperation(null);
   };
+
   const performLocalSave = async (fileName: string) => {
     try {
       const content = encodeURIComponent(AppGeneral.getSpreadsheetContent());
@@ -185,7 +192,13 @@ const Home: React.FC = () => {
       setShowToast(true);
     } catch (error) {
       console.error("Error saving file:", error);
-      setToastMessage("Failed to save file locally.");
+
+      // Check if the error is due to storage quota exceeded
+      if (isQuotaExceededError(error)) {
+        setToastMessage(getQuotaExceededMessage("saving files"));
+      } else {
+        setToastMessage("Failed to save file locally.");
+      }
       setToastColor("danger");
       setShowToast(true);
     }
@@ -216,6 +229,14 @@ const Home: React.FC = () => {
         }
       } catch (error) {
         console.error("Error initializing app:", error);
+
+        // Check if the error is due to storage quota exceeded
+        if (isQuotaExceededError(error)) {
+          setToastMessage(getQuotaExceededMessage("initializing the app"));
+          setToastColor("danger");
+          setShowToast(true);
+        }
+
         // Fallback to template initialization
         const data = DATA["home"][device]["msc"];
         AppGeneral.initializeApp(JSON.stringify(data));
@@ -269,28 +290,44 @@ const Home: React.FC = () => {
   );
 
   const handleAutoSave = async () => {
-    console.log("Auto-saving file...");
-    const content = encodeURIComponent(AppGeneral.getSpreadsheetContent());
+    try {
+      console.log("Auto-saving file...");
+      const content = encodeURIComponent(AppGeneral.getSpreadsheetContent());
 
-    if (selectedFile === "default") {
-      // Autosave the default file to local storage
-      const now = new Date().toISOString();
-      const file = new File(now, now, content, "default", billType);
+      if (selectedFile === "default") {
+        // Autosave the default file to local storage
+        const now = new Date().toISOString();
+        const file = new File(now, now, content, "default", billType);
+        await store._saveFile(file);
+        return;
+      }
+
+      // For named files, get existing metadata and update
+      const data = await store._getFile(selectedFile);
+      const file = new File(
+        (data as any)?.created || new Date().toISOString(),
+        new Date().toISOString(),
+        content,
+        selectedFile,
+        billType
+      );
       await store._saveFile(file);
-      return;
-    }
+      updateSelectedFile(selectedFile);
+    } catch (error) {
+      console.error("Error auto-saving file:", error);
 
-    // For named files, get existing metadata and update
-    const data = await store._getFile(selectedFile);
-    const file = new File(
-      (data as any)?.created || new Date().toISOString(),
-      new Date().toISOString(),
-      content,
-      selectedFile,
-      billType
-    );
-    await store._saveFile(file);
-    updateSelectedFile(selectedFile);
+      // Check if the error is due to storage quota exceeded
+      if (isQuotaExceededError(error)) {
+        setToastMessage(getQuotaExceededMessage("auto-saving"));
+        setToastColor("danger");
+        setShowToast(true);
+      } else {
+        // For other errors during auto-save, show a less intrusive message
+        setToastMessage("Auto-save failed. Please save manually.");
+        setToastColor("warning");
+        setShowToast(true);
+      }
+    }
   };
   useEffect(() => {
     const debouncedAutoSave = () => {
@@ -482,6 +519,7 @@ const Home: React.FC = () => {
           </div>
         </IonToolbar>
       </IonHeader>
+
       <IonContent fullscreen>
         <div id="container">
           <div id="workbookControl"></div>

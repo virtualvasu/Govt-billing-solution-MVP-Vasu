@@ -80,7 +80,7 @@
 
 /* Modal scrollable files container - updated for mobile */
 .files-scrollable-container {
-  max-height: calc(100vh - 220px);
+ 
   padding: 0 8px;
   margin-bottom: 8px;
 }
@@ -92,7 +92,6 @@
 
 /* Mobile-friendly file list container */
 .files-scrollable-container {
-  max-height: calc(100vh - 220px);
   padding: 0 8px;
   margin-bottom: 8px;
 }
@@ -726,6 +725,9 @@ ion-icon[slot="end"] {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   transition: all 0.2s ease;
 }
+.dark-theme .template-option-card {
+  background: #0d1117;
+}
 
 .template-option-card:hover {
   transform: translateY(-1px);
@@ -756,7 +758,9 @@ ion-icon[slot="end"] {
   padding: 16px 16px 0 16px;
   background-color: white;
 }
-
+.dark-theme .custom-tabs-container {
+  background: #0d1117;
+}
 .custom-tabs {
   display: flex;
   border-bottom: 1px solid var(--ion-color-light-shade, #e9ecef);

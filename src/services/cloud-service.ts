@@ -11,11 +11,16 @@ const getApiBaseUrl = (): string => {
   if (Capacitor.isNativePlatform()) {
     // TODO: Replace with your actual computer's IP address
     // You can find your IP with: ifconfig (Linux/Mac) or ipconfig (Windows)
-    return "http://192.168.110.61:8888"; // Replace with your actual IP
+    return "http://192.168.110.61:8080"; // Replace with your actual IP
   }
 
-  // For web development, use localhost
-  return "http://localhost:8888";
+  // For web development, use proxy to avoid CORS issues
+  if (import.meta.env.DEV) {
+    return "/api"; // This will use the Vite proxy
+  }
+
+  // For production web, use direct server URL
+  return "http://localhost:8080";
 };
 
 const API_BASE_URL = getApiBaseUrl();
@@ -147,413 +152,308 @@ class CloudService {
     return headers;
   }
 
-  async login(credentials: LoginCredentials): Promise<AuthResponse> {
-    const response = await fetch(`${API_BASE_URL}/auth/login`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(credentials),
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || "Login failed");
-    }
-
-    const data = await response.json();
-    this.setToken(data.token);
-
-    // Store user info for later use
-    if (data.user) {
-      localStorage.setItem("user_info", JSON.stringify(data.user));
-    }
-
-    return data;
-  }
-
-  async register(
-    credentials: RegisterCredentials
-  ): Promise<{ success: boolean; message: string; user_id: number }> {
-    const response = await fetch(`${API_BASE_URL}/auth/register`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(credentials),
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || "Registration failed");
-    }
-
-    return await response.json();
-  }
-
-  async getFiles(): Promise<ServerFile[]> {
-    const response = await fetch(`${API_BASE_URL}/server-files`, {
-      method: "GET",
-      headers: this.getHeaders(),
-    });
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        this.clearToken();
-        throw new Error("Authentication required");
-      }
-      const error = await response.json();
-      throw new Error(error.error || "Failed to fetch files");
-    }
-
-    const data = await response.json();
-    return data.files;
-  }
-
-  async uploadFile(file: File): Promise<{
-    success: boolean;
-    message: string;
-    file_id: number;
-    filename: string;
-  }> {
-    const formData = new FormData();
-    formData.append("file", file);
-
-    const headers: HeadersInit = {};
-    const token = this.getToken();
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
-
-    const response = await fetch(`${API_BASE_URL}/server-files/upload`, {
-      method: "POST",
-      headers,
-      body: formData,
-    });
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        this.clearToken();
-        throw new Error("Authentication required");
-      }
-      const error = await response.json();
-      throw new Error(error.error || "Upload failed");
-    }
-
-    return await response.json();
-  }
-
-  async uploadInvoiceData(
-    filename: string,
-    content: string,
-    billType: number
-  ): Promise<{
-    success: boolean;
-    message: string;
-    file_id: number;
-    filename: string;
-  }> {
-    // Create a JSON file with the invoice data
-    const fileData = {
-      fileName: `server_${filename}`,
-      content: content,
-      timestamp: new Date().toISOString(),
-      billType: billType,
-    };
-
-    // Create a Blob from the JSON data
-    const jsonBlob = new Blob([JSON.stringify(fileData, null, 2)], {
-      type: "application/json",
-    });
-
-    // Create a File object from the Blob
-    const file = new File([jsonBlob], `server_${filename}.json`, {
-      type: "application/json",
-    });
-
-    // Use the existing uploadFile method
-    return await this.uploadFile(file);
-  }
-
-  async downloadFile(fileId: number): Promise<Blob> {
-    const response = await fetch(
-      `${API_BASE_URL}/server-files/download/${fileId}`,
-      {
-        method: "GET",
-        headers: this.getHeaders(),
-      }
-    );
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        this.clearToken();
-        throw new Error("Authentication required");
-      }
-      if (response.status === 404) {
-        throw new Error("File not found");
-      }
-      const error = await response.json();
-      throw new Error(error.error || "Download failed");
-    }
-
-    return await response.blob();
-  }
-
-  async deleteFile(
-    fileId: number
-  ): Promise<{ success: boolean; message: string }> {
-    const response = await fetch(
-      `${API_BASE_URL}/server-files/delete/${fileId}`,
-      {
-        method: "DELETE",
-        headers: this.getHeaders(),
-      }
-    );
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        this.clearToken();
-        throw new Error("Authentication required");
-      }
-      if (response.status === 404) {
-        throw new Error("File not found");
-      }
-      const error = await response.json();
-      throw new Error(error.error || "Delete failed");
-    }
-
-    return await response.json();
-  }
-
   isAuthenticated(): boolean {
     return !!this.getToken();
   }
 
-  // Logo management methods
-  async getLogos(): Promise<Logo[]> {
-    const response = await fetch(`${API_BASE_URL}/logos/`, {
-      method: "GET",
-      headers: this.getHeaders(),
-    });
+  // ----------------------- Authentication Functions -------------------------------
+  async login(credentials: LoginCredentials): Promise<AuthResponse> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          email: credentials.email,
+          password: credentials.password,
+          react_app: "true",
+        }),
+      });
 
-    if (!response.ok) {
-      if (response.status === 401) {
-        this.clearToken();
-        throw new Error("Authentication required");
-      }
-      const error = await response.json();
-      throw new Error(error.error || "Failed to fetch logos");
-    }
+      // Handle successful JSON response
+      if (response.ok) {
+        const data = await response.json();
 
-    const data = await response.json();
-    return data.logos;
-  }
+        if (data.success) {
+          // Login successful - use JWT token from server
+          const userData = {
+            success: true,
+            token: data.token, // Use actual JWT token from server
+            user: {
+              id: Date.now(), // You might want to get this from server response
+              name: data.user.split("@")[0], // Extract name from email
+              email: data.user,
+            },
+          };
 
-  async uploadLogo(logoFile: File): Promise<UploadLogoResponse> {
-    const formData = new FormData();
-    formData.append("logo", logoFile);
-
-    const headers: HeadersInit = {};
-    const token = this.getToken();
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
-
-    const response = await fetch(`${API_BASE_URL}/logos/`, {
-      method: "POST",
-      headers,
-      body: formData,
-    });
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        this.clearToken();
-        throw new Error("Authentication required");
-      }
-      const error = await response.json();
-      throw new Error(error.error || "Logo upload failed");
-    }
-
-    return await response.json();
-  }
-
-  async deleteLogo(
-    logoId: number
-  ): Promise<{ success: boolean; message: string }> {
-    const response = await fetch(`${API_BASE_URL}/logos/${logoId}`, {
-      method: "DELETE",
-      headers: this.getHeaders(),
-    });
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        this.clearToken();
-        throw new Error("Authentication required");
-      }
-      if (response.status === 404) {
-        throw new Error("Logo not found");
-      }
-      const error = await response.json();
-      throw new Error(error.error || "Delete failed");
-    }
-
-    return await response.json();
-  }
-
-  async getLogoDetails(logoId: number): Promise<Logo> {
-    const response = await fetch(`${API_BASE_URL}/logos/${logoId}`, {
-      method: "GET",
-      headers: this.getHeaders(),
-    });
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        this.clearToken();
-        throw new Error("Authentication required");
-      }
-      if (response.status === 404) {
-        throw new Error("Logo not found");
-      }
-      const error = await response.json();
-      throw new Error(error.error || "Failed to fetch logo details");
-    }
-
-    const data = await response.json();
-    return data.logo;
-  }
-
-  async convertUrlToBase64(imageUrl: string): Promise<{
-    success: boolean;
-    base64: string;
-    data_url: string;
-    content_type: string;
-    file_size: number;
-    message: string;
-  }> {
-    const response = await fetch(`${API_BASE_URL}/logos/url-to-base64`, {
-      method: "POST",
-      headers: this.getHeaders(),
-      body: JSON.stringify({ image_url: imageUrl }),
-    });
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        this.clearToken();
-        throw new Error("Authentication required");
-      }
-
-      // Handle specific error cases from the API
-      const error = await response.json().catch(() => ({}));
-
-      if (response.status === 400) {
-        // Check if it's a CORS-related error or other client errors
-        if (error.error && error.error.includes("CORS")) {
-          const corsError = new Error("CORS_ERROR");
-          corsError.message = "CORS_ERROR";
-          throw corsError;
+          this.setToken(userData.token);
+          localStorage.setItem("user_info", JSON.stringify(userData.user));
+          return userData;
+        } else {
+          // Server returned success: false
+          throw new Error(
+            data.message ||
+              "Authentication failed. Please check your credentials."
+          );
         }
-        throw new Error(error.error || "Invalid request");
       }
 
-      if (response.status === 408) {
-        throw new Error("Request timeout. URL took too long to respond");
+      // Handle error responses
+      if (response.status === 401) {
+        const errorData = await response.json();
+        if (errorData.error === "INVALID_CREDENTIALS") {
+          throw new Error(
+            "Invalid email or password. Please check your credentials."
+          );
+        }
+        throw new Error(
+          errorData.message ||
+            "Authentication failed. Please check your credentials."
+        );
       }
 
-      throw new Error(error.error || "Failed to convert URL to base64");
+      // Handle other error status codes
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(
+        errorData.message || `Login failed with status ${response.status}`
+      );
+    } catch (error) {
+      console.log(error);
+      if (error instanceof TypeError && error.message.includes("CORS")) {
+        throw new Error(
+          "Server connection failed. Please check if the server is running and CORS is configured."
+        );
+      }
+      if (error instanceof SyntaxError) {
+        throw new Error(
+          "Invalid response from server. Please check server configuration."
+        );
+      }
+      throw error;
     }
-
-    return await response.json();
   }
 
-  /**
-   * Convert HTML to PDF using the new direct API endpoint
-   * Returns PDF blob directly without S3 storage
-   */
-  async convertHTMLToPDF(
-    htmlContent: string,
-    options: {
-      filename?: string;
-      pdfOptions?: PDFGenerationRequest["options"];
-    }
-  ): Promise<Blob> {
-    const requestData = {
-      html_content: htmlContent,
-      filename: options.filename || "document.pdf",
-      options: options.pdfOptions || {},
-    };
+  async register(credentials: RegisterCredentials): Promise<AuthResponse> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/register`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          email: credentials.email,
+          password: credentials.password,
+          react_app: "true",
+        }),
+      });
 
-    const response = await fetch(`${API_BASE_URL}/pdf/convert`, {
-      method: "POST",
-      headers: this.getHeaders(),
-      body: JSON.stringify(requestData),
-    });
+      // Handle successful JSON response
+      if (response.ok) {
+        const data = await response.json();
 
-    if (!response.ok) {
-      if (response.status === 401) {
-        this.clearToken();
-        throw new Error("Authentication required");
+        if (data.success) {
+          // Registration successful - return success without token (no auto-login)
+          return {
+            success: true,
+            token: "", // No token for registration - user needs to login separately
+            user: {
+              id: Date.now(),
+              name: credentials.name,
+              email: credentials.email,
+            },
+          };
+        } else {
+          // Server returned success: false
+          throw new Error(
+            data.message || "Registration failed. Please try again."
+          );
+        }
       }
-      const error = await response.json();
-      throw new Error(error.error || "PDF conversion failed");
-    }
 
-    return await response.blob();
+      // Handle error responses
+      if (response.status === 409) {
+        const errorData = await response.json();
+        if (errorData.error === "USER_EXISTS") {
+          throw new Error(
+            "User already exists. Please try logging in instead."
+          );
+        }
+        throw new Error(
+          errorData.message ||
+            "User already exists. Please try logging in instead."
+        );
+      }
+
+      // Handle other error status codes
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(
+        errorData.message ||
+          `Registration failed with status ${response.status}`
+      );
+    } catch (error) {
+      console.log(error);
+      if (error instanceof TypeError && error.message.includes("CORS")) {
+        throw new Error(
+          "Server connection failed. Please check if the server is running and CORS is configured."
+        );
+      }
+      if (error instanceof SyntaxError) {
+        throw new Error(
+          "Invalid response from server. Please check server configuration."
+        );
+      }
+      throw error;
+    }
   }
 
-  /**
-   * Preview PDF using the new direct API endpoint
-   * Returns PDF blob for inline preview
-   */
-  async previewPDFDirect(
-    htmlContent: string,
-    options?: PDFGenerationRequest["options"]
-  ): Promise<Blob> {
-    const requestData = {
-      html_content: htmlContent,
-      options: options || {},
-    };
-
-    const response = await fetch(`${API_BASE_URL}/pdf/preview`, {
-      method: "POST",
-      headers: this.getHeaders(),
-      body: JSON.stringify(requestData),
-    });
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        this.clearToken();
-        throw new Error("Authentication required");
-      }
-      const error = await response.json();
-      throw new Error(error.error || "PDF preview generation failed");
-    }
-
-    return await response.blob();
+  async logout(): Promise<void> {
+    // Clear local authentication data
+    this.clearToken();
   }
 
-  /**
-   * Check the health of the HTML to PDF service
-   */
-  async checkPDFServiceHealth(): Promise<{
-    status: string;
-    service: string;
-    message: string;
-  }> {
-    const response = await fetch(`${API_BASE_URL}/pdf/health`, {
-      method: "GET",
-      headers: this.getHeaders(),
-    });
+  // ------------file operations - save,retrieve, download, delete--------------------
+  async uploadFile(file: File): Promise<any> {
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
 
-    if (!response.ok) {
-      if (response.status === 401) {
-        this.clearToken();
-        throw new Error("Authentication required");
+      const headers: HeadersInit = {};
+
+      // Add JWT token to headers if available
+      const token = this.getToken();
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
       }
-      const error = await response.json();
-      throw new Error(error.error || "PDF service health check failed");
-    }
 
-    return await response.json();
+      const response = await fetch(`${API_BASE_URL}/fileops`, {
+        method: "POST",
+        headers,
+        body: formData,
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error("User not authenticated. Please login first.");
+        }
+        if (response.status === 409) {
+          throw new Error(
+            "File already exists. Please choose a different name."
+          );
+        }
+        throw new Error(`Failed to upload file: ${response.status}`);
+      }
+
+      const result = await response.json();
+      return result;
+    } catch (error) {
+      console.error("Error uploading file:", error);
+      throw error;
+    }
+  }
+
+  async getFiles(): Promise<{ files: ServerFile[] }> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/fileops`, {
+        method: "GET",
+        headers: this.getHeaders(),
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error("User not authenticated. Please login first.");
+        }
+        throw new Error(`Failed to fetch files: ${response.status}`);
+      }
+
+      const result = await response.json();
+      return result;
+    } catch (error) {
+      console.error("Error fetching files:", error);
+      throw error;
+    }
+  }
+
+  async downloadFileByName(filename: string): Promise<Blob> {
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/fileops?filename=${encodeURIComponent(filename)}`,
+        {
+          method: "GET",
+          headers: this.getHeaders(),
+        }
+      );
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error("User not authenticated. Please login first.");
+        }
+        if (response.status === 404) {
+          throw new Error("File not found.");
+        }
+        throw new Error(`Failed to download file: ${response.status}`);
+      }
+
+      return await response.blob();
+    } catch (error) {
+      console.error("Error downloading file:", error);
+      throw error;
+    }
+  }
+
+  async deleteFileByName(filename: string): Promise<any> {
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/fileops?filename=${encodeURIComponent(filename)}`,
+        {
+          method: "DELETE",
+          headers: this.getHeaders(),
+        }
+      );
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error("User not authenticated. Please login first.");
+        }
+        if (response.status === 404) {
+          throw new Error("File not found.");
+        }
+        throw new Error(`Failed to delete file: ${response.status}`);
+      }
+
+      const result = await response.json();
+      return result;
+    } catch (error) {
+      console.error("Error deleting file:", error);
+      throw error;
+    }
+  }
+
+  // -------------------------------Pdf to Html on Server-------------------------------
+  async convertHTMLToPDF(htmlContent: string, options: any): Promise<Blob> {
+    try {
+      const payload = {
+        html_content: htmlContent,
+        filename: options.filename || "document.pdf",
+        pdfOptions: options.pdfOptions || {},
+        user_id: this.getCurrentUserId() || "unknown",
+      };
+
+      const response = await fetch(`${API_BASE_URL}/directhtmltopdf`, {
+        method: "POST",
+        headers: this.getHeaders(),
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to convert HTML to PDF: ${response.status}`);
+      }
+
+      return await response.blob();
+    } catch (error) {
+      console.error("Error converting HTML to PDF:", error);
+      throw error;
+    }
   }
 
   // Helper method to get user ID (you may need to adjust this based on your auth implementation)
@@ -570,6 +470,270 @@ class CloudService {
       }
     }
     return null;
+  }
+
+  getCurrentUserInfo(): { id: number; name: string; email: string } | null {
+    const userInfo = localStorage.getItem("user_info");
+    if (userInfo) {
+      try {
+        return JSON.parse(userInfo);
+      } catch (error) {
+        console.error("Error parsing user info:", error);
+      }
+    }
+    return null;
+  }
+
+  // ------------------------- Logo API Functions --------------------------
+
+  /**
+   * Upload a logo image for the authenticated user
+   */
+  async uploadLogo(logoFile: File): Promise<UploadLogoResponse> {
+    try {
+      if (!this.isAuthenticated()) {
+        throw new Error("User not authenticated. Please login first.");
+      }
+
+      if (!logoFile) {
+        throw new Error("No file provided for upload.");
+      }
+
+      // Validate file type
+      const allowedTypes = [
+        "image/png",
+        "image/jpeg",
+        "image/jpg",
+        "image/gif",
+        "image/webp",
+        "image/svg+xml",
+      ];
+
+      if (!allowedTypes.includes(logoFile.type)) {
+        throw new Error(
+          "Invalid file type. Only images are allowed (PNG, JPG, JPEG, GIF, WebP, SVG)"
+        );
+      }
+
+      // Validate file size (max 5MB)
+      if (logoFile.size > 5 * 1024 * 1024) {
+        throw new Error("File size too large. Maximum 5MB allowed");
+      }
+
+      // Validate file name
+      if (logoFile.name.length > 255) {
+        throw new Error("File name too long. Maximum 255 characters allowed");
+      }
+
+      const formData = new FormData();
+      formData.append("logo", logoFile);
+
+      const headers: HeadersInit = {};
+      const token = this.getToken();
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/logos`, {
+        method: "POST",
+        headers,
+        body: formData,
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error("User not authenticated. Please login first.");
+        }
+        if (response.status === 409) {
+          throw new Error(
+            "A logo with this name already exists. Please choose a different file name."
+          );
+        }
+        if (response.status === 400) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || "Invalid file or missing data.");
+        }
+        if (response.status === 413) {
+          throw new Error("File too large. Maximum 5MB allowed.");
+        }
+        if (response.status === 415) {
+          throw new Error(
+            "Unsupported file type. Please use PNG, JPG, JPEG, GIF, WebP, or SVG."
+          );
+        }
+        throw new Error(`Failed to upload logo: ${response.status}`);
+      }
+
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.message || "Failed to upload logo");
+      }
+
+      return result;
+    } catch (error) {
+      console.error("Error uploading logo:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all logos for the authenticated user
+   */
+  async getLogos(): Promise<Logo[]> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/logos`, {
+        method: "GET",
+        headers: this.getHeaders(),
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error("User not authenticated. Please login first.");
+        }
+        throw new Error(`Failed to fetch logos: ${response.status}`);
+      }
+
+      const result = await response.json();
+      return result.logos || [];
+    } catch (error) {
+      console.error("Error fetching logos:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete a specific logo by filename
+   */
+  async deleteLogo(logoId: number): Promise<void> {
+    try {
+      if (!this.isAuthenticated()) {
+        throw new Error("User not authenticated. Please login first.");
+      }
+
+      // First get the logo to find its filename
+      const logos = await this.getLogos();
+      const logoToDelete = logos.find((logo) => logo.id === logoId);
+
+      if (!logoToDelete) {
+        throw new Error("Logo not found");
+      }
+
+      // Extract filename from the logo_url
+      const filename = logoToDelete.logo_url.split("/").pop();
+      if (!filename) {
+        throw new Error("Invalid logo filename");
+      }
+
+      const response = await fetch(
+        `${API_BASE_URL}/logos?filename=${encodeURIComponent(filename)}`,
+        {
+          method: "DELETE",
+          headers: this.getHeaders(),
+        }
+      );
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error("User not authenticated. Please login first.");
+        }
+        if (response.status === 404) {
+          throw new Error("Logo not found or already deleted.");
+        }
+        if (response.status === 403) {
+          throw new Error("You don't have permission to delete this logo.");
+        }
+        throw new Error(`Failed to delete logo: ${response.status}`);
+      }
+
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.message || "Failed to delete logo");
+      }
+    } catch (error) {
+      console.error("Error deleting logo:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get logo file data directly
+   */
+  async getLogoFile(logoUrl: string): Promise<Blob> {
+    try {
+      const response = await fetch(`${API_BASE_URL}${logoUrl}`, {
+        method: "GET",
+        headers: this.getHeaders(),
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error("User not authenticated. Please login first.");
+        }
+        if (response.status === 404) {
+          throw new Error("Logo not found.");
+        }
+        throw new Error(`Failed to fetch logo: ${response.status}`);
+      }
+
+      return await response.blob();
+    } catch (error) {
+      console.error("Error fetching logo file:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Convert logo URL to base64 data URL for embedding in spreadsheet
+   */
+  async convertUrlToBase64(logoUrl: string): Promise<{ data_url: string }> {
+    try {
+      if (!logoUrl) {
+        throw new Error("No logo URL provided");
+      }
+
+      if (!this.isAuthenticated()) {
+        throw new Error("User not authenticated. Please login first.");
+      }
+
+      // Get the logo file as blob
+      const blob = await this.getLogoFile(logoUrl);
+
+      if (!blob || blob.size === 0) {
+        throw new Error("Logo file is empty or corrupted");
+      }
+
+      // Check if blob is a valid image type
+      if (!blob.type.startsWith("image/")) {
+        throw new Error("File is not a valid image");
+      }
+
+      // Convert blob to base64
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+
+        reader.onload = () => {
+          const result = reader.result as string;
+          if (!result || !result.startsWith("data:")) {
+            reject(new Error("Failed to generate valid base64 data URL"));
+            return;
+          }
+          resolve({ data_url: result });
+        };
+
+        reader.onerror = () => {
+          reject(new Error("Failed to read logo file"));
+        };
+
+        reader.onabort = () => {
+          reject(new Error("Logo file read was aborted"));
+        };
+
+        reader.readAsDataURL(blob);
+      });
+    } catch (error) {
+      console.error("Error converting logo URL to base64:", error);
+      throw error;
+    }
   }
 }
 

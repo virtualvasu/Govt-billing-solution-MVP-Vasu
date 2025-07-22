@@ -592,6 +592,55 @@ export function getLogoCoordinates() {
 
   return coordinates;
 }
+export function getSignatureCoordinates() {
+  const deviceType = getDeviceType();
+  console.log("=== GET SIGNATURE COORDINATES ===");
+  console.log("Detected device type:", deviceType);
+
+  // Import the SIGNATURE configuration (you'll need to import this)
+  // For now, returning a basic structure - you should import from app-data-new.ts
+  const SIGNATURE = {
+    iPad: {
+      sheet1: null,
+      sheet2: null,
+      sheet3: null,
+      sheet4: null,
+    },
+    iPhone: {
+      sheet1: null,
+      sheet2: null,
+      sheet3: null,
+      sheet4: null,
+      sheet5: null,
+    },
+    iPod: {
+      sheet1: null,
+      sheet2: null,
+      sheet3: null,
+      sheet4: null,
+      sheet5: null,
+    },
+    Android: {
+      sheet1: null,
+      sheet2: null,
+      sheet3: null,
+      sheet4: null,
+      sheet5: null,
+    },
+    default: {
+      sheet1: "D31",
+      sheet2: "D31",
+      sheet3: "C36",
+      sheet4: "C36",
+    },
+  };
+
+  const coordinates = SIGNATURE[deviceType] || SIGNATURE.default;
+  console.log("Selected coordinates:", coordinates);
+  console.log("=== END GET SIGNATURE COORDINATES ===");
+
+  return coordinates;
+}
 
 export function showFormattingButtons(coord, callback) {
   console.log("Showing formatting buttons for cell:", coord);

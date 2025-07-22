@@ -139,3 +139,82 @@ export const formatDateForFilename = (date: Date): string => {
 
   return `${year}-${month}-${day}T${hours}-${minutes}-${seconds}`;
 };
+
+// Helper function to check if an error is due to storage quota exceeded
+export const isQuotaExceededError = (error: unknown): boolean => {
+  if (error instanceof Error) {
+    return (
+      error.name === "QuotaExceededError" ||
+      error.message.includes("exceeded the quota") ||
+      error.message.includes("QuotaExceededError")
+    );
+  }
+  return false;
+};
+
+// Helper function to get user-friendly error message for storage quota exceeded
+export const getQuotaExceededMessage = (
+  operation: string = "operation"
+): string => {
+  return `Storage quota exceeded! Please delete some local files to free up space before ${operation}.`;
+};
+
+// Helper function to estimate localStorage usage
+export const getStorageUsageInfo = (): {
+  used: number;
+  total: number;
+  percentage: number;
+} => {
+  try {
+    // Estimate total localStorage quota (typically 5-10MB)
+    const totalQuota = 5 * 1024 * 1024; // 5MB as a conservative estimate
+
+    // Calculate used space
+    let usedSpace = 0;
+    for (let key in localStorage) {
+      if (localStorage.hasOwnProperty(key)) {
+        usedSpace += (localStorage[key].length + key.length) * 2; // UTF-16 uses 2 bytes per character
+      }
+    }
+
+    return {
+      used: usedSpace,
+      total: totalQuota,
+      percentage: (usedSpace / totalQuota) * 100,
+    };
+  } catch (error) {
+    console.error("Error calculating storage usage:", error);
+    return { used: 0, total: 0, percentage: 0 };
+  }
+};
+
+// Helper function to format bytes for display
+export const formatBytes = (bytes: number): string => {
+  if (bytes === 0) return "0 Bytes";
+
+  const k = 1024;
+  const sizes = ["Bytes", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+};
+
+// Helper function to provide storage management suggestions
+export const getStorageManagementSuggestions = (
+  usagePercentage: number
+): string[] => {
+  const suggestions = [];
+
+  if (usagePercentage > 80) {
+    suggestions.push("Delete old or unnecessary files from local storage");
+    suggestions.push("Move important files to server storage");
+    suggestions.push("Export files as PDF or CSV and delete local copies");
+  } else if (usagePercentage > 60) {
+    suggestions.push("Consider moving some files to server storage");
+    suggestions.push("Review and delete any duplicate files");
+  } else {
+    suggestions.push("Your storage usage is healthy");
+  }
+
+  return suggestions;
+};

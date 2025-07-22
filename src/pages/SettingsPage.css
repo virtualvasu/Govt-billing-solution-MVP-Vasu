@@ -6,6 +6,26 @@
   color: #f0f6fc !important;
 }
 
+/* Signature Canvas Fixes */
+.signature-canvas {
+  touch-action: none !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+  pointer-events: auto !important;
+  box-sizing: border-box !important;
+  position: relative !important;
+}
+
+/* Prevent canvas scaling issues */
+canvas.signature-canvas {
+  max-width: 100% !important;
+  height: auto !important;
+  display: block !important;
+  margin: 0 auto !important;
+}
+
 .settings-page-dark ion-content {
   --background: #0d1117 !important;
   --color: #f0f6fc !important;
@@ -440,7 +460,6 @@
 /* Card Headers - Simplified */
 .settings-card-header-dark {
   background: #161b22;
-  border-bottom: 2px solid #30363d;
   padding: 20px;
 }
 
@@ -616,7 +635,8 @@ ion-icon[color="tertiary"] {
 
   .settings-card-title-dark,
   .settings-card-title-light {
-    font-size: 1em !important;
+    font-size: 1.4em !important;
+    font-weight: 800 !important;
     padding: 0;
   }
 
@@ -920,4 +940,115 @@ ion-icon[color="tertiary"] {
 .settings-page-light .auth-header-light ion-icon,
 .settings-page-dark .auth-header-dark ion-icon {
   color: #ffffff !important;
+}
+
+/* Signature Section Styles */
+.signature-section {
+  margin: 20px 0;
+}
+
+.signature-canvas {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+.signature-section .auth-card-dark,
+.signature-section .auth-card-light {
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+.signature-section .auth-header-dark,
+.signature-section .auth-header-light {
+  padding: 20px 24px;
+  background: linear-gradient(135deg, #0969da 0%, #0366d6 100%);
+}
+
+.signature-section .auth-content {
+  padding: 24px;
+}
+
+.signature-section .auth-title {
+  font-size: 1.2em;
+  font-weight: 700;
+  margin: 0 0 8px 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #ffffff !important;
+}
+
+.signature-section .auth-subtitle {
+  font-size: 0.95em;
+  margin: 0;
+  opacity: 0.9;
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+/* Responsive signature canvas */
+@media (max-width: 768px) {
+  .signature-canvas {
+    width: 100% !important;
+    height: 120px !important;
+  }
+}
+
+@media (min-width: 769px) {
+  .signature-canvas {
+    width: 100% !important;
+    height: 150px !important;
+  }
+}
+
+/* Signature Modal Header Customizations */
+.signature-section .auth-modal-header ion-toolbar {
+  --background: linear-gradient(135deg, #0969da 0%, #0366d6 100%);
+  --color: white;
+}
+
+.signature-section .auth-modal-header ion-select {
+  --color: white;
+  --placeholder-color: white;
+}
+
+.signature-section .auth-modal-header ion-range {
+  --bar-background: rgba(255, 255, 255, 0.3);
+  --bar-background-active: white;
+  --knob-background: white;
+  --knob-border-radius: 50%;
+  --height: 20px;
+}
+
+/* Header controls styling */
+.signature-header-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 14px;
+}
+
+.signature-header-controls .color-selector {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.signature-header-controls .width-selector {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 80px;
+}
+
+/* Make sure the modal header has proper spacing */
+.auth-modal-header ion-title {
+  padding: 0;
+}
+
+.auth-modal-header ion-toolbar {
+  padding: 0 16px;
 }

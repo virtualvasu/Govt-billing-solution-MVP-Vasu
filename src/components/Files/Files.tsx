@@ -52,7 +52,12 @@ import { useTheme } from "../../contexts/ThemeContext";
 import { useHistory } from "react-router-dom";
 import { cloudService, ServerFile } from "../../services/cloud-service";
 import { useInvoice } from "../../contexts/InvoiceContext";
-import { cleanServerFilename, formatDateForFilename } from "../../utils/helper";
+import {
+  cleanServerFilename,
+  formatDateForFilename,
+  isQuotaExceededError,
+  getQuotaExceededMessage,
+} from "../../utils/helper";
 
 const Files: React.FC<{
   store: Local;
@@ -143,7 +148,13 @@ const Files: React.FC<{
         }
       } catch (error) {
         console.error("Error saving default file changes:", error);
-        setToastMessage("Failed to save default file changes");
+
+        // Check if the error is due to storage quota exceeded
+        if (isQuotaExceededError(error)) {
+          setToastMessage(getQuotaExceededMessage("saving changes"));
+        } else {
+          setToastMessage("Failed to save default file changes");
+        }
         setShowToast(true);
       }
     }
@@ -168,10 +179,12 @@ const Files: React.FC<{
         setShowToast(true);
         return;
       }
-
+      // console.log("billType:", data.billType);
+      // console.log("File CONTENT-------------->", data.content);
       const decodedContent = decodeURIComponent(data.content);
-      console.log("Decoded content length:", decodedContent.length);
-      console.log("Decoded content preview:", decodedContent.substring(0, 200));
+      // console.log("Decoded content:", decodedContent);
+      // console.log("Decoded content length:", decodedContent.length);
+      // console.log("Decoded content preview:", decodedContent.substring(0, 200));
 
       // Ensure SocialCalc is properly initialized before loading the file
       // First, try to get the current workbook control to see if it's initialized
@@ -205,7 +218,7 @@ const Files: React.FC<{
 
       props.updateSelectedFile(key);
       props.updateBillType(data.billType);
-      history.push("/home");
+      history.push("/app/editor");
     } catch (error) {
       console.error("Error in editFile:", error);
       setToastMessage("Failed to load file");
@@ -403,8 +416,9 @@ const Files: React.FC<{
 
     setServerFilesLoading(true);
     try {
-      const files = await cloudService.getFiles();
-      setServerFiles(files);
+      const response = await cloudService.getFiles();
+      console.log("Server files loaded:", response);
+      setServerFiles(response.files);
     } catch (error) {
       setToastMessage("Failed to load server files");
       setShowToast(true);
@@ -415,7 +429,7 @@ const Files: React.FC<{
 
   const handleFileDownload = async (file: ServerFile) => {
     try {
-      const blob = await cloudService.downloadFile(file.id);
+      const blob = await cloudService.downloadFileByName(file.filename);
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -437,7 +451,13 @@ const Files: React.FC<{
   const handleFileDelete = async (fileId: number) => {
     setDeletingFile(fileId);
     try {
-      await cloudService.deleteFile(fileId);
+      // Find the file by ID to get its filename
+      const file = serverFiles.find((f) => f.id === fileId);
+      if (!file) {
+        throw new Error("File not found");
+      }
+
+      await cloudService.deleteFileByName(file.filename);
       setToastMessage("File deleted successfully");
       setShowToast(true);
       loadServerFiles();
@@ -455,33 +475,19 @@ const Files: React.FC<{
       setShowToast(true);
 
       // Download the file from server
-      const blob = await cloudService.downloadFile(file.id);
+      const blob = await cloudService.downloadFileByName(file.filename);
 
       // Convert blob to text
-      const text = await blob.text();
+      const fileData = await blob.text();
 
-      // Parse the JSON content
-      const fileData = JSON.parse(text);
-      console.log("Server file data:", fileData);
-
-      // Check if this is a server invoice file (has the expected structure)
-      if (
-        fileData.content &&
-        fileData.fileName &&
-        fileData.billType !== undefined
-      ) {
-        // The content from server is already the raw content, not URL-encoded
-        // We need to URL-encode it for local storage
-        const encodedContent = encodeURIComponent(fileData.content);
-
-        // Remove the "server_" prefix from the filename
-        const localFileName = fileData.fileName.replace("server_", "");
-
+      if (fileData && file.filename) {
+        const localFileName = file.filename;
+        const encodedContent = encodeURIComponent(fileData);
         console.log("Creating local file with:", {
           fileName: localFileName,
-          contentLength: fileData.content.length,
+          contentLength: fileData.length,
           encodedContentLength: encodedContent.length,
-          billType: fileData.billType,
+          billType: 1,
         });
 
         // Validate the filename (basic check)
@@ -507,8 +513,8 @@ const Files: React.FC<{
           now,
           now,
           encodedContent, // Use URL-encoded content
-          localFileName, // Use filename without server_ prefix
-          fileData.billType,
+          localFileName, // Use filename as is
+          1,
           false // isEncrypted = false for server files
         );
 
@@ -545,7 +551,13 @@ const Files: React.FC<{
       }
     } catch (error) {
       console.error("Error moving file to local storage:", error);
-      setToastMessage("Failed to move file to local storage");
+
+      // Check if the error is due to storage quota exceeded
+      if (isQuotaExceededError(error)) {
+        setToastMessage(getQuotaExceededMessage("moving files from server"));
+      } else {
+        setToastMessage("Failed to move file to local storage");
+      }
       setShowToast(true);
     }
   };
@@ -619,11 +631,15 @@ const Files: React.FC<{
           }
 
           // Upload to server using the existing service
-          await cloudService.uploadInvoiceData(
-            fileName,
-            contentToUpload,
-            fileData.billType || 0
-          );
+          // Create a File object from the content
+          const fileBlob = new Blob([contentToUpload], {
+            type: "application/json",
+          });
+          const fileObject = new globalThis.File([fileBlob], fileName, {
+            type: "application/json",
+          });
+
+          await cloudService.uploadFile(fileObject);
 
           successCount++;
           console.log(`Successfully saved ${fileName} to server`);
@@ -684,10 +700,8 @@ const Files: React.FC<{
       setIsMovingAllToLocal(true);
       setMoveAllProgress("Preparing to move all files...");
 
-      // Get all server files - filter only invoice files (those starting with "server_")
-      const invoiceFiles = serverFiles.filter((file) =>
-        file.filename.startsWith("server_")
-      );
+      // Get all server files - all files are now invoice files
+      const invoiceFiles = serverFiles;
 
       if (invoiceFiles.length === 0) {
         setToastMessage("No invoice files found on server to move");
@@ -711,7 +725,7 @@ const Files: React.FC<{
 
         try {
           // Download the file from server
-          const blob = await cloudService.downloadFile(file.id);
+          const blob = await cloudService.downloadFileByName(file.filename);
           const text = await blob.text();
           const fileData = JSON.parse(text);
 
@@ -721,8 +735,8 @@ const Files: React.FC<{
             fileData.fileName &&
             fileData.billType !== undefined
           ) {
-            // Remove the "server_" prefix from the filename
-            const localFileName = fileData.fileName.replace("server_", "");
+            // Use the filename as is (no server_ prefix removal needed)
+            const localFileName = fileData.fileName;
 
             // Validate the filename
             if (!localFileName || localFileName.trim() === "") {
@@ -766,11 +780,28 @@ const Files: React.FC<{
           }
         } catch (error) {
           errorCount++;
-          errors.push(
-            `${file.filename} (${
-              error instanceof Error ? error.message : "unknown error"
-            })`
-          );
+
+          // Check if the error is due to storage quota exceeded
+          if (isQuotaExceededError(error)) {
+            errors.push(`${file.filename} (storage quota exceeded)`);
+
+            // If quota exceeded, show immediate feedback and stop the operation
+            setMoveAllProgress("Operation stopped: Storage quota exceeded");
+            setToastMessage(
+              getQuotaExceededMessage("continuing the bulk move operation")
+            );
+            setShowToast(true);
+
+            // Break out of the loop to stop further processing
+            break;
+          } else {
+            errors.push(
+              `${file.filename} (${
+                error instanceof Error ? error.message : "unknown error"
+              })`
+            );
+          }
+
           console.error(
             `Error moving ${file.filename} to local storage:`,
             error
@@ -897,7 +928,13 @@ const Files: React.FC<{
         setShowRenameAlert(false);
       } catch (error) {
         console.error("Error renaming file:", error);
-        setToastMessage("Failed to rename file");
+
+        // Check if the error is due to storage quota exceeded
+        if (isQuotaExceededError(error)) {
+          setToastMessage(getQuotaExceededMessage("renaming files"));
+        } else {
+          setToastMessage("Failed to rename file");
+        }
         setShowToast(true);
         // Reset state even on error to close the dialog
         setCurrentRenameKey(null);
@@ -1191,16 +1228,9 @@ const Files: React.FC<{
                             className="file-icon server-icon"
                           />
                           <IonLabel className="mobile-file-label">
-                            <h3>
-                              {file.filename.startsWith("server_")
-                                ? cleanServerFilename(file.filename)
-                                : file.filename}
-                            </h3>
+                            <h3>{file.filename}</h3>
                             <p>Server file • {_formatDate(file.created_at)}</p>
-                            <p>
-                              Size: {(file.file_size / 1024).toFixed(2)} KB
-                              {file.filename.startsWith("server_")}
-                            </p>
+                            <p>Size: {(file.file_size / 1024).toFixed(2)} KB</p>
                           </IonLabel>
                           <div
                             slot="end"
@@ -1210,21 +1240,19 @@ const Files: React.FC<{
                               gap: "6px",
                             }}
                           >
-                            {file.filename.startsWith("server_") && (
-                              <IonIcon
-                                icon={download}
-                                color="success"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleMoveToLocal(file);
-                                }}
-                                title="Move to Local Storage"
-                                style={{
-                                  fontSize: "24px",
-                                  cursor: "pointer",
-                                }}
-                              />
-                            )}
+                            <IonIcon
+                              icon={download}
+                              color="success"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleMoveToLocal(file);
+                              }}
+                              title="Move to Local Storage"
+                              style={{
+                                fontSize: "24px",
+                                cursor: "pointer",
+                              }}
+                            />
                             <IonIcon
                               icon={trash}
                               color="danger"
@@ -1284,17 +1312,12 @@ const Files: React.FC<{
                                 className="file-icon server-icon"
                               />
                               <IonLabel className="mobile-file-label">
-                                <h3>
-                                  {file.filename.startsWith("server_")
-                                    ? cleanServerFilename(file.filename)
-                                    : file.filename}
-                                </h3>
+                                <h3>{file.filename}</h3>
                                 <p>
                                   Server file • {_formatDate(file.created_at)}
                                 </p>
                                 <p>
                                   Size: {(file.file_size / 1024).toFixed(2)} KB
-                                  {file.filename.startsWith("server_")}
                                 </p>
                               </IonLabel>
                               <div
@@ -1305,21 +1328,19 @@ const Files: React.FC<{
                                   gap: "6px",
                                 }}
                               >
-                                {file.filename.startsWith("server_") && (
-                                  <IonIcon
-                                    icon={download}
-                                    color="success"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleMoveToLocal(file);
-                                    }}
-                                    title="Move to Local Storage"
-                                    style={{
-                                      fontSize: "24px",
-                                      cursor: "pointer",
-                                    }}
-                                  />
-                                )}
+                                <IonIcon
+                                  icon={download}
+                                  color="success"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleMoveToLocal(file);
+                                  }}
+                                  title="Move to Local Storage"
+                                  style={{
+                                    fontSize: "24px",
+                                    cursor: "pointer",
+                                  }}
+                                />
                                 <IonIcon
                                   icon={trash}
                                   color="danger"
@@ -1385,24 +1406,24 @@ const Files: React.FC<{
   }, [fileSource]);
 
   return (
-      <div style={{
-        paddingBottom: "60px",
-      }}>
-      <div >
+    <div>
+      <div>
         <div className="files-modal-content">
-         
-
           {/* File Source Tabs */}
           <div className="custom-tabs-container">
             <div className="custom-tabs">
               <button
-                className={`custom-tab-button ${fileSource === "local" ? "active" : ""}`}
+                className={`custom-tab-button ${
+                  fileSource === "local" ? "active" : ""
+                }`}
                 onClick={() => setFileSource("local")}
               >
                 🏠 Local Files
               </button>
               <button
-                className={`custom-tab-button ${fileSource === "server" ? "active" : ""}`}
+                className={`custom-tab-button ${
+                  fileSource === "server" ? "active" : ""
+                }`}
                 onClick={() => setFileSource("server")}
               >
                 ☁️ Server Files
@@ -1608,11 +1629,7 @@ const Files: React.FC<{
         header="Delete server file"
         message={
           currentServerFile
-            ? `Do you want to delete the "${
-                currentServerFile.filename.startsWith("server_")
-                  ? cleanServerFilename(currentServerFile.filename)
-                  : currentServerFile.filename
-              }" file from the server?`
+            ? `Do you want to delete the "${currentServerFile.filename}" file from the server?`
             : "Do you want to delete this file from the server?"
         }
         buttons={[
@@ -1676,7 +1693,7 @@ const Files: React.FC<{
         duration={2000}
         position="top"
       />
-  </div>
+    </div>
   );
 };
 

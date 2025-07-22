@@ -38,6 +38,9 @@ import {
   closeCircle,
   key,
   cameraOutline,
+  server,
+  createOutline,
+  checkmark,
 } from "ionicons/icons";
 import * as AppGeneral from "../socialcalc/index.js";
 import { File } from "../Storage/LocalStorage";
@@ -47,6 +50,12 @@ import { formatDateForFilename } from "../../utils/helper.js";
 import { cloudService, Logo } from "../../services/cloud-service";
 import { useTheme } from "../../contexts/ThemeContext";
 import { Camera, CameraResultType, CameraSource } from "@capacitor/camera";
+import {
+  isQuotaExceededError,
+  getQuotaExceededMessage,
+} from "../../utils/helper";
+import { s } from "vite/dist/node/types.d-jgA8ss1A.js";
+// ...existing imports...
 
 interface FileOptionsProps {
   showActionsPopover: boolean;
@@ -62,6 +71,7 @@ const FileOptions: React.FC<FileOptionsProps> = ({
   const [toastMessage, setToastMessage] = useState("");
   const [showUnsavedChangesAlert, setShowUnsavedChangesAlert] = useState(false);
   const [showSaveAsAlert, setShowSaveAsAlert] = useState(false);
+  const [showSaveToServerAlert, setShowSaveToServerAlert] = useState(false);
   const [newFileName, setNewFileName] = useState("");
   const [showLogoAlert, setShowLogoAlert] = useState(false);
   const [device] = useState(AppGeneral.getDeviceType());
@@ -79,6 +89,12 @@ const FileOptions: React.FC<FileOptionsProps> = ({
   const [logoToDelete, setLogoToDelete] = useState<Logo | null>(null);
   const [processingLogoId, setProcessingLogoId] = useState<number | null>(null);
 
+  // Signature modal state
+  const [showSignatureModal, setShowSignatureModal] = useState(false);
+  const [userSignatures, setUserSignatures] = useState<
+    Array<{ id: string; data: string; name: string }>
+  >([]);
+
   const {
     selectedFile,
     store,
@@ -87,6 +103,14 @@ const FileOptions: React.FC<FileOptionsProps> = ({
     updateBillType,
     resetToDefaults,
   } = useInvoice();
+
+  // Helper function to get the full logo URL
+  const getFullLogoUrl = (logoUrl: string) => {
+    const API_BASE_URL =
+      import.meta.env.VITE_API_BASE_URL ||
+      (import.meta.env.DEV ? "/api" : "http://localhost:8080");
+    return `${API_BASE_URL}${logoUrl}`;
+  };
 
   // Utility function to check if Capacitor Camera is available
   const isCameraAvailable = async () => {
@@ -117,6 +141,21 @@ const FileOptions: React.FC<FileOptionsProps> = ({
       return false;
     } else if (await store._checkKey(filename)) {
       setToastMessage("Filename already exists");
+      return false;
+    }
+    return true;
+  };
+
+  const _validateNameForServer = (filename) => {
+    filename = filename.trim();
+    if (filename === "" || !filename) {
+      setToastMessage("Filename cannot be empty");
+      return false;
+    } else if (filename.length > 30) {
+      setToastMessage("Filename too long");
+      return false;
+    } else if (/^[a-zA-Z0-9- ]*$/.test(filename) === false) {
+      setToastMessage("Special Characters cannot be used in filename");
       return false;
     }
     return true;
@@ -174,7 +213,13 @@ const FileOptions: React.FC<FileOptionsProps> = ({
       setShowToast(true);
     } catch (error) {
       console.error("Error creating new file:", error);
-      setToastMessage("Error creating new invoice");
+
+      // Check if the error is due to storage quota exceeded
+      if (isQuotaExceededError(error)) {
+        setToastMessage(getQuotaExceededMessage("create"));
+      } else {
+        setToastMessage("Error creating new invoice");
+      }
       setShowToast(true);
     }
   };
@@ -204,25 +249,38 @@ const FileOptions: React.FC<FileOptionsProps> = ({
 
   const handleSave = async () => {
     if (selectedFile === "default") {
-      setToastMessage("Cannot Save Default File, Please use Save As Buton");
+      setToastMessage("Cannot Save Default File, Please use Save As Button");
       setShowToast(true);
       return;
     }
-    // For named files, get existing metadata and update
-    const content = encodeURIComponent(AppGeneral.getSpreadsheetContent());
-    const data = await store._getFile(selectedFile);
-    const file = new File(
-      (data as any)?.created || new Date().toISOString(),
-      new Date().toISOString(),
-      content,
-      selectedFile,
-      billType
-    );
-    await store._saveFile(file);
-    updateSelectedFile(selectedFile);
-    setToastMessage("File saved successfully");
-    setShowToast(true);
-    setShowActionsPopover(false);
+
+    try {
+      // For named files, get existing metadata and update
+      const content = encodeURIComponent(AppGeneral.getSpreadsheetContent());
+      const data = await store._getFile(selectedFile);
+      const file = new File(
+        (data as any)?.created || new Date().toISOString(),
+        new Date().toISOString(),
+        content,
+        selectedFile,
+        billType
+      );
+      await store._saveFile(file);
+      updateSelectedFile(selectedFile);
+      setToastMessage("File saved successfully");
+      setShowToast(true);
+      setShowActionsPopover(false);
+    } catch (error) {
+      console.error("Error saving file:", error);
+
+      // Check if the error is due to storage quota exceeded
+      if (isQuotaExceededError(error)) {
+        setToastMessage(getQuotaExceededMessage("save"));
+      } else {
+        setToastMessage("Failed to save file. Please try again.");
+      }
+      setShowToast(true);
+    }
   };
 
   const handleSaveAs = () => {
@@ -236,34 +294,116 @@ const FileOptions: React.FC<FileOptionsProps> = ({
     // console.log(filename, _validateName(filename));
     const isValid = await _validateName(filename);
     if (isValid) {
-      // filename valid . go on save
-      const content = encodeURIComponent(AppGeneral.getSpreadsheetContent());
-      // console.log(content);
-      const now = new Date().toISOString();
-      const file = new File(now, now, content, filename, billType);
+      try {
+        // filename valid . go on save
+        console.log("Saving file as:", AppGeneral.getSpreadsheetContent());
+        const content = encodeURIComponent(AppGeneral.getSpreadsheetContent());
+        // console.log(content);
+        const now = new Date().toISOString();
 
-      store._saveFile(file);
+        const file = new File(now, now, content, filename, billType);
+        console.log("Saving file:", file);
+        await store._saveFile(file);
 
-      // reset default file
-      if (selectedFile === "default") {
-        const msc = DATA["home"][device]["msc"];
-        const templateContent = encodeURIComponent(JSON.stringify(msc));
-        const newDefaultFile = new File(
-          now,
-          now,
-          templateContent,
-          "default",
-          1
-        );
-        await store._saveFile(newDefaultFile);
+        // reset default file
+        if (selectedFile === "default") {
+          const msc = DATA["home"][device]["msc"];
+          const templateContent = encodeURIComponent(JSON.stringify(msc));
+          const newDefaultFile = new File(
+            now,
+            now,
+            templateContent,
+            "default",
+            1
+          );
+          await store._saveFile(newDefaultFile);
+        }
+        updateSelectedFile(filename);
+        setToastMessage("File saved as " + filename + " successfully");
+        setShowToast(true);
+
+        // setShowAlert4(true);
+      } catch (error) {
+        console.error("Error saving file:", error);
+
+        // Check if the error is due to storage quota exceeded
+        if (isQuotaExceededError(error)) {
+          setToastMessage(getQuotaExceededMessage("saveAs"));
+        } else {
+          setToastMessage("Failed to save file. Please try again.");
+        }
+        setShowToast(true);
       }
-      updateSelectedFile(filename);
-      setToastMessage("File saved as " + filename + " successfully");
-      setShowToast(true);
-
-      // setShowAlert4(true);
     } else {
       setShowToast(true);
+    }
+  };
+
+  // Function to generate invoice filename with current datetime
+  const generateInvoiceFilename = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    const hours = String(now.getHours()).padStart(2, "0");
+    const minutes = String(now.getMinutes()).padStart(2, "0");
+    const seconds = String(now.getSeconds()).padStart(2, "0");
+
+    return `invoice-${year}${month}${day}-${hours}${minutes}${seconds}`;
+  };
+
+  const handleSaveToServer = () => {
+    setShowActionsPopover(false);
+    const filename =
+      selectedFile === "default" ? generateInvoiceFilename() : selectedFile;
+    setNewFileName(filename);
+    setShowSaveToServerAlert(true);
+  };
+
+  const doSaveToServer = async (filename) => {
+    if (filename) {
+      if (_validateNameForServer(filename)) {
+        try {
+          setToastMessage("Saving to server...");
+          setShowToast(true);
+
+          const content = AppGeneral.getSpreadsheetContent();
+
+          // Import the server files service
+          const { cloudService } = await import(
+            "../../services/cloud-service.js"
+          );
+
+          // Check if user is authenticated
+          if (!cloudService.isAuthenticated()) {
+            setToastMessage("Please login to server files first");
+            setShowToast(true);
+            return;
+          }
+
+          // Save to server using the new /save endpoint
+          // Create a File object from the content
+          const fileBlob = new Blob([content], { type: "application/json" });
+          const fileObject = new globalThis.File([fileBlob], `${filename}`, {
+            type: "application/json",
+          });
+
+          const result = await cloudService.uploadFile(fileObject);
+
+          setToastMessage(
+            result.message || `File '${filename}' saved to server successfully`
+          );
+          setShowToast(true);
+        } catch (error) {
+          console.error("Error saving to server:", error);
+          setToastMessage(
+            error.message || "Failed to save to server. Please try again."
+          );
+          setShowToast(true);
+        }
+      } else {
+        setShowToast(true);
+      }
     }
   };
 
@@ -639,84 +779,23 @@ const FileOptions: React.FC<FileOptionsProps> = ({
     }
   };
 
-  const handleApplyDirectly = async () => {
-    if (!selectedLogoFile) {
-      setToastMessage("Please select a logo file");
-      setShowToast(true);
-      return;
-    }
-
-    setIsUploadingLogo(true);
-    try {
-      // Convert selected file to base64
-      const logoData = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const result = e.target?.result as string;
-          resolve(result);
-        };
-        reader.onerror = () => reject(new Error("Failed to read file"));
-        reader.readAsDataURL(selectedLogoFile);
-      });
-
-      // Get the correct logo coordinates based on device type
-      const logoCoordinates = AppGeneral.getLogoCoordinates();
-      console.log("Using logo coordinates for direct apply:", logoCoordinates);
-
-      // Add logo directly to the spreadsheet
-      await AppGeneral.addLogo(logoCoordinates, logoData);
-
-      setToastMessage("Logo applied directly to invoice!");
-      setShowToast(true);
-      setSelectedLogoFile(null);
-
-      // Reset file inputs
-      const fileInput = document.getElementById(
-        "logo-file-input"
-      ) as HTMLInputElement;
-      if (fileInput) fileInput.value = "";
-
-      // Close the modal
-      setShowLogoModal(false);
-    } catch (error) {
-      console.error("Failed to apply logo directly:", error);
-      setToastMessage("Failed to apply logo. Please try again.");
-      setShowToast(true);
-    } finally {
-      setIsUploadingLogo(false);
-    }
-  };
-
   const handleSelectLogo = async (logo: Logo) => {
     try {
       setProcessingLogoId(logo.id);
 
-      let logoData: string;
+      // Construct the full logo URL using helper function
+      const fullLogoUrl = getFullLogoUrl(logo.logo_url);
 
-      try {
-        // Try to convert URL to base64 using the cloud service
-        const conversionResult = await cloudService.convertUrlToBase64(
-          logo.logo_url
-        );
-        logoData = conversionResult.data_url; // Use the full data URL format
-        console.log("Logo successfully converted to base64");
-        setToastMessage("Logo converted successfully!");
-        setShowToast(true);
-      } catch (conversionError) {
-        console.warn("Failed to convert logo to base64:", conversionError);
-        setToastMessage("Failed to Fetch Logo");
-        setShowToast(true);
-        return;
-      }
+      console.log("Using direct logo URL:", fullLogoUrl);
 
       // Get the correct logo coordinates based on device type
       const logoCoordinates = AppGeneral.getLogoCoordinates();
       console.log("Using logo coordinates:", logoCoordinates);
 
-      // Add logo with proper coordinate object and logo data (base64 or URL)
-      await AppGeneral.addLogo(logoCoordinates, logoData);
+      // Add logo with proper coordinate object and direct URL
+      await AppGeneral.addLogo(logoCoordinates, fullLogoUrl);
 
-      console.log("Logo added successfully");
+      console.log("Logo added successfully with direct URL");
       setToastMessage("Logo added successfully!");
       setShowToast(true);
       setShowLogoModal(false);
@@ -764,6 +843,86 @@ const FileOptions: React.FC<FileOptionsProps> = ({
     }
   };
 
+  const handleAddSignature = async (signature_url: string) => {
+    try {
+      // Get the correct logo coordinates based on device type
+      const signatureCoordinates = AppGeneral.getSignatureCoordinates();
+      console.log("Using signature coordinates:", signatureCoordinates);
+
+      // Add logo with proper coordinate object and direct URL
+      await AppGeneral.addLogo(signatureCoordinates, signature_url);
+
+      console.log("Signature added successfully with direct URL");
+      setToastMessage("Signature added successfully!");
+      setShowToast(true);
+      setShowSignatureModal(false);
+    } catch (error) {
+      console.error("Failed to add signature:", error);
+      setToastMessage("Failed to add signature. Please try again.");
+      setShowToast(true);
+    } finally {
+      setProcessingLogoId(null);
+    }
+  };
+
+  const handleOpenSignatureModal = () => {
+    setShowActionsPopover(false);
+    setShowSignatureModal(true);
+    fetchUserSignatures();
+  };
+
+  const fetchUserSignatures = () => {
+    try {
+      const saved = localStorage.getItem("userSignatures");
+      if (saved) {
+        const signatures = JSON.parse(saved);
+        setUserSignatures(signatures);
+      } else {
+        setUserSignatures([]);
+      }
+    } catch (error) {
+      console.error("Error loading signatures:", error);
+      setUserSignatures([]);
+    }
+  };
+
+  const handleSelectSignature = async (signature: {
+    id: string;
+    data: string;
+    name: string;
+  }) => {
+    await handleAddSignature(signature.data);
+  };
+
+  const handleRemoveSignature = () => {
+    try {
+      // Get the correct signature coordinates based on device type
+      const signatureCoordinates = AppGeneral.getSignatureCoordinates();
+      console.log(
+        "Using signature coordinates for removal:",
+        signatureCoordinates
+      );
+
+      // Remove signature with proper coordinate object
+      AppGeneral.removeLogo(signatureCoordinates)
+        .then(() => {
+          console.log("Signature removed successfully");
+          setShowSignatureModal(false);
+          setToastMessage("Signature removed successfully");
+          setShowToast(true);
+        })
+        .catch((error) => {
+          console.error("Failed to remove signature:", error);
+          setToastMessage("Failed to remove signature. Please try again.");
+          setShowToast(true);
+        });
+    } catch (error) {
+      console.error("Error removing signature:", error);
+      setToastMessage("Error removing signature");
+      setShowToast(true);
+    }
+  };
+
   return (
     <React.Fragment>
       {/* Hidden file input for logo upload */}
@@ -797,6 +956,10 @@ const FileOptions: React.FC<FileOptionsProps> = ({
               <IonLabel>Save As</IonLabel>
               <IonIcon icon={documentOutline} slot="end" />
             </IonItem>
+            <IonItem button onClick={handleSaveToServer}>
+              <IonLabel>Save to Server</IonLabel>
+              <IonIcon icon={server} slot="end" />
+            </IonItem>
             <IonItem button onClick={handleAddLogo}>
               <IonLabel>Add Logo</IonLabel>
               <IonIcon icon={imageOutline} slot="end" />
@@ -804,6 +967,10 @@ const FileOptions: React.FC<FileOptionsProps> = ({
             <IonItem button onClick={handleRemoveLogo}>
               <IonLabel>Remove Logo</IonLabel>
               <IonIcon icon={trashOutline} slot="end" />
+            </IonItem>
+            <IonItem button onClick={handleOpenSignatureModal}>
+              <IonLabel>Add Signature</IonLabel>
+              <IonIcon icon={createOutline} slot="end" />
             </IonItem>
             <IonItem button onClick={handleUndo}>
               <IonLabel>Undo</IonLabel>
@@ -843,6 +1010,37 @@ const FileOptions: React.FC<FileOptionsProps> = ({
             text: "Save",
             handler: (data) => {
               doSaveAs(data.fileName);
+            },
+          },
+        ]}
+      />
+
+      {/* Save to Server Alert */}
+      <IonAlert
+        isOpen={showSaveToServerAlert}
+        onDidDismiss={() => setShowSaveToServerAlert(false)}
+        header="Save to Server"
+        message="Enter a name for the file:"
+        inputs={[
+          {
+            name: "serverFileName",
+            type: "text",
+            placeholder: "File name",
+            value: newFileName,
+          },
+        ]}
+        buttons={[
+          {
+            text: "Cancel",
+            role: "cancel",
+            handler: () => {
+              setShowSaveToServerAlert(false);
+            },
+          },
+          {
+            text: "Save",
+            handler: (data) => {
+              doSaveToServer(data.serverFileName);
             },
           },
         ]}
@@ -983,18 +1181,7 @@ const FileOptions: React.FC<FileOptionsProps> = ({
                 <>
                   <IonGrid style={{ marginTop: "10px" }}>
                     <IonRow>
-                      <IonCol size="6">
-                        <IonButton
-                          expand="block"
-                          fill="outline"
-                          disabled={isUploadingLogo}
-                          onClick={handleApplyDirectly}
-                        >
-                          <IonIcon icon={imageOutline} slot="start" />
-                          Apply Directly
-                        </IonButton>
-                      </IonCol>
-                      <IonCol size="6">
+                      <IonCol size="12">
                         <IonButton
                           expand="block"
                           disabled={
@@ -1025,10 +1212,6 @@ const FileOptions: React.FC<FileOptionsProps> = ({
                       color: "var(--ion-color-medium)",
                     }}
                   >
-                    <p style={{ margin: "5px 0" }}>
-                      <strong>Apply Directly:</strong> Use the logo immediately
-                      on this invoice
-                    </p>
                     <p style={{ margin: "5px 0" }}>
                       <strong>Save to Server:</strong>{" "}
                       {cloudService.isAuthenticated()
@@ -1063,7 +1246,7 @@ const FileOptions: React.FC<FileOptionsProps> = ({
                 <div style={{ textAlign: "center", padding: "20px" }}>
                   <IonIcon icon={key} size="large" color="warning" />
                   <h3>Please login to save your logos</h3>
-                  <p>You can still apply logos directly without logging in</p>
+                  <p>Login to upload and manage your logo collection</p>
                 </div>
               ) : isLoadingLogos ? (
                 <div style={{ textAlign: "center", padding: "20px" }}>
@@ -1112,7 +1295,7 @@ const FileOptions: React.FC<FileOptionsProps> = ({
                       }}
                     >
                       <img
-                        src={logo.logo_url}
+                        src={getFullLogoUrl(logo.logo_url)}
                         alt={logo.filename}
                         style={{
                           width: "100%",
@@ -1185,6 +1368,108 @@ const FileOptions: React.FC<FileOptionsProps> = ({
                       </IonButton>
                     </div>
                   ))}
+                </div>
+              )}
+            </IonCardContent>
+          </IonCard>
+        </IonContent>
+      </IonModal>
+
+      {/* Signature Modal */}
+      <IonModal
+        isOpen={showSignatureModal}
+        onDidDismiss={() => setShowSignatureModal(false)}
+      >
+        <IonHeader>
+          <IonToolbar>
+            <IonTitle>Select Signature</IonTitle>
+            <IonButton
+              fill="clear"
+              slot="end"
+              color={isDarkMode ? "light" : "dark"}
+              onClick={() => setShowSignatureModal(false)}
+            >
+              <IonIcon icon={close} />
+            </IonButton>
+          </IonToolbar>
+        </IonHeader>
+        <IonContent className="ion-padding">
+          <IonCard>
+            <IonCardHeader>
+              <IonCardTitle>Your Signatures</IonCardTitle>
+            </IonCardHeader>
+            <IonCardContent>
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "12px",
+                  justifyContent: "flex-start",
+                  alignItems: "flex-start",
+                }}
+              >
+                {/* None option */}
+                <div
+                  style={{
+                    width: "150px",
+                    height: "80px",
+                    border: "2px solid #ddd",
+                    borderRadius: "8px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    backgroundColor: "transparent",
+                    position: "relative",
+                  }}
+                  onClick={handleRemoveSignature}
+                >
+                  <span
+                    style={{
+                      color: isDarkMode ? "#8b949e" : "#656d76",
+                      fontSize: "0.9rem",
+                    }}
+                  >
+                    None
+                  </span>
+                </div>
+
+                {/* Signature options */}
+                {userSignatures.map((signature) => (
+                  <div
+                    key={signature.id}
+                    style={{
+                      width: "150px",
+                      height: "80px",
+                      border: "2px solid #ddd",
+                      borderRadius: "8px",
+                      position: "relative",
+                      cursor: "pointer",
+                      backgroundColor: "transparent",
+                      overflow: "hidden",
+                    }}
+                    onClick={() => handleSelectSignature(signature)}
+                  >
+                    <img
+                      src={signature.data}
+                      alt="Signature"
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "contain",
+                        padding: "4px",
+                        backgroundColor: "white",
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              {userSignatures.length === 0 && (
+                <div style={{ textAlign: "center", padding: "20px" }}>
+                  <IonIcon icon={createOutline} size="large" color="medium" />
+                  <h3>No signatures available</h3>
+                  <p>Create signatures in Settings to use them here</p>
                 </div>
               )}
             </IonCardContent>
