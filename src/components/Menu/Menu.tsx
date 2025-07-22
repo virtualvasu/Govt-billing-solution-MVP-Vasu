@@ -3,7 +3,7 @@ import * as AppGeneral from "../socialcalc/index.js";
 import { File, Local } from "../Storage/LocalStorage";
 import { isPlatform, IonToast, IonLoading } from "@ionic/react";
 import { EmailComposer } from "capacitor-email-composer";
-import { Printer } from "@ionic-native/printer";
+import { Printer } from "@bcyesil/capacitor-plugin-printer";
 import { IonActionSheet, IonAlert } from "@ionic/react";
 import {
   saveOutline,
@@ -94,16 +94,31 @@ const Menu: React.FC<{
     return filename;
   };
 
-  const doPrint = () => {
+  const doPrint = async () => {
     if (isPlatform("hybrid")) {
-      const printer = Printer;
-      printer.print(AppGeneral.getCurrentHTMLContent());
+      try {
+        const htmlContent = AppGeneral.getCurrentHTMLContent();
+        
+        await Printer.print({
+          content: htmlContent,
+          name: selectedFile || "Invoice",
+          orientation: "portrait"
+        });
+        
+        setToastMessage("Print job sent successfully!");
+        setShowToast1(true);
+      } catch (error) {
+        console.error("Print error:", error);
+        setToastMessage("Failed to print. Please check if a printer is available.");
+        setShowToast1(true);
+      }
     } else {
       const content = AppGeneral.getCurrentHTMLContent();
-      // useReactToPrint({ content: () => content });
       const printWindow = window.open("/printwindow", "Print Invoice");
-      printWindow.document.write(content);
-      printWindow.print();
+      if (printWindow) {
+        printWindow.document.write(content);
+        printWindow.print();
+      }
     }
   };
 
@@ -751,17 +766,15 @@ const Menu: React.FC<{
   const getMenuButtons = () => {
     const baseButtons = [];
 
-    // Only add print button for non-mobile devices
-    if (!isPlatform("mobile") && !isPlatform("hybrid")) {
-      baseButtons.push({
-        text: "Print",
-        icon: print,
-        handler: () => {
-          doPrint();
-          console.log("Print clicked");
-        },
-      });
-    }
+    // Add print button for all platforms
+    baseButtons.push({
+      text: "Print",
+      icon: print,
+      handler: () => {
+        doPrint();
+        console.log("Print clicked");
+      },
+    });
 
     // Add remaining buttons
     baseButtons.push(

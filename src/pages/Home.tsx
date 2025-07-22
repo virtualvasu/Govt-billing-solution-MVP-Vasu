@@ -37,10 +37,15 @@ import {
   textOutline,
   ellipsisVertical,
   shareSharp,
+  cloudDownloadOutline,
+  wifiOutline,
+  downloadOutline,
 } from "ionicons/icons";
 import "./Home.css";
 import FileOptions from "../components/NewFile/FileOptions";
 import Menu from "../components/Menu/Menu";
+import PWAInstallPrompt from "../components/PWAInstallPrompt";
+import { usePWA } from "../hooks/usePWA";
 import { useTheme } from "../contexts/ThemeContext";
 import { useInvoice } from "../contexts/InvoiceContext";
 import {
@@ -55,6 +60,7 @@ const Home: React.FC = () => {
   const { isDarkMode } = useTheme();
   const { selectedFile, billType, store, updateSelectedFile, updateBillType } =
     useInvoice();
+  const { isInstallable, isInstalled, isOnline, installApp } = usePWA();
 
   const [showMenu, setShowMenu] = useState(false);
   const [device] = useState(AppGeneral.getDeviceType());
@@ -473,6 +479,30 @@ const Home: React.FC = () => {
             slot="end"
             className={isPlatform("desktop") && "ion-padding-end"}
           >
+            {/* PWA Status Indicators */}
+            <IonIcon
+              icon={isOnline ? wifiOutline : cloudDownloadOutline}
+              size="small"
+              style={{ 
+                cursor: "pointer", 
+                marginRight: "8px",
+                color: isOnline ? "#28ba62" : "#f04141" 
+              }}
+              title={isOnline ? "Online" : "Offline"}
+            />
+            {isInstallable && !isInstalled && (
+              <IonIcon
+                icon={downloadOutline}
+                size="small"
+                onClick={installApp}
+                style={{ 
+                  cursor: "pointer", 
+                  marginRight: "8px",
+                  color: "#3880ff"
+                }}
+                title="Install App"
+              />
+            )}
             <IonIcon
               icon={textOutline}
               size="large"

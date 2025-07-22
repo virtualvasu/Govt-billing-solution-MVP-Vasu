@@ -53,11 +53,22 @@ import {
   trash,
   cloudUploadOutline,
   imageOutline,
+  downloadOutline,
+  notifications,
+  wifiOutline,
+  cloudOfflineOutline,
+  cloudDoneOutline,
+  refreshOutline,
 } from "ionicons/icons";
 import SignatureCanvas from "react-signature-canvas";
 import Menu from "../components/Menu/Menu";
 import { Local } from "../components/Storage/LocalStorage";
 import { useTheme } from "../contexts/ThemeContext";
+import { useInvoice } from "../contexts/InvoiceContext";
+import PWAInstallPrompt from "../components/PWAInstallPrompt";
+import PWADemo from "../components/PWADemo";
+import { usePushNotifications } from "../utils/pushNotifications";
+import { usePWA } from "../hooks/usePWA";
 import "./SettingsPage.css";
 import {
   cloudService,
@@ -75,6 +86,11 @@ const SettingsPage: React.FC = () => {
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  
+  // PWA features
+  const { requestPermission, subscribe, getPermissionState } = usePushNotifications();
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
+  const { isInstallable, isInstalled, isOnline, installApp } = usePWA();
 
   // Signature state
   const [showSignatureModal, setShowSignatureModal] = useState(false);
@@ -670,6 +686,31 @@ const SettingsPage: React.FC = () => {
     setUploadPreview(null);
   };
 
+
+  const handleNotificationPermission = async () => {
+    try {
+      const permission = await requestPermission();
+      setNotificationPermission(permission);
+      
+      if (permission === 'granted') {
+        await subscribe();
+        setToastMessage("Notifications enabled successfully!");
+      } else {
+        setToastMessage("Notification permission denied");
+      }
+      setShowToast(true);
+    } catch (error) {
+      setToastMessage("Failed to enable notifications");
+      setShowToast(true);
+    }
+  };
+  
+  React.useEffect(() => {
+    getPermissionState().then(state => {
+      setNotificationPermission(state.permission);
+    });
+  }, []);
+
   return (
     <IonPage
       className={isDarkMode ? "settings-page-dark" : "settings-page-light"}
@@ -1104,6 +1145,137 @@ const SettingsPage: React.FC = () => {
                 </IonList>
               </IonCardContent>
             </IonCard>
+
+            {/* PWA Status Card */}
+            <IonCard
+              className={
+                isDarkMode ? "settings-card-dark" : "settings-card-light"
+              }
+            >
+              <IonCardHeader
+                className={
+                  isDarkMode
+                    ? "settings-card-header-dark"
+                    : "settings-card-header-light"
+                }
+              >
+                <IonCardTitle
+                  className={
+                    isDarkMode
+                      ? "settings-card-title-dark"
+                      : "settings-card-title-light"
+                  }
+                >
+                  <IonIcon
+                    icon={downloadOutline}
+                    style={{ marginRight: "8px", fontSize: "1.5em" }}
+                  />
+                  PWA Features
+                </IonCardTitle>
+              </IonCardHeader>
+              <IonCardContent>
+                <IonList>
+                  <IonItem>
+                    <IonIcon 
+                      icon={downloadOutline} 
+                      slot="start" 
+                      color={isInstallable && !isInstalled ? "success" : "medium"}
+                    />
+                    <IonLabel>
+                      <h2>App Installation</h2>
+                      <p>
+                        {isInstalled 
+                          ? "✓ App is installed" 
+                          : isInstallable 
+                            ? "Ready to install - Click to add to home screen" 
+                            : "Installation not available (may already be installed)"}
+                      </p>
+                    </IonLabel>
+                    {isInstallable && !isInstalled && (
+                      <IonButton 
+                        fill="outline" 
+                        size="small" 
+                        onClick={async () => {
+                          const success = await installApp();
+                          if (success) {
+                            setToastMessage("App installed successfully!");
+                            setShowToast(true);
+                          }
+                        }}
+                        slot="end"
+                      >
+                        Install
+                      </IonButton>
+                    )}
+                  </IonItem>
+
+                  <IonItem>
+                    <IonIcon 
+                      icon={isOnline ? wifiOutline : cloudOfflineOutline} 
+                      slot="start" 
+                      color={isOnline ? "success" : "warning"}
+                    />
+                    <IonLabel>
+                      <h2>Connection Status</h2>
+                      <p>{isOnline ? "✓ Online - All features available" : "⚠ Offline - Limited functionality"}</p>
+                    </IonLabel>
+                  </IonItem>
+
+                  <IonItem>
+                    <IonIcon 
+                      icon={notifications} 
+                      slot="start" 
+                      color={notificationPermission === 'granted' ? "success" : "medium"}
+                    />
+                    <IonLabel>
+                      <h2>Push Notifications</h2>
+                      <p>
+                        {notificationPermission === 'granted' 
+                          ? "✓ Enabled - You'll receive updates" 
+                          : "Enable notifications for app updates"}
+                      </p>
+                    </IonLabel>
+                    {notificationPermission !== 'granted' && (
+                      <IonButton 
+                        fill="outline" 
+                        size="small" 
+                        onClick={handleNotificationPermission}
+                        slot="end"
+                      >
+                        Enable
+                      </IonButton>
+                    )}
+                  </IonItem>
+
+                  <IonItem>
+                    <IonIcon 
+                      icon={cloudDoneOutline} 
+                      slot="start" 
+                      color="success"
+                    />
+                    <IonLabel>
+                      <h2>Offline Storage</h2>
+                      <p>✓ Your data is saved locally and syncs when online</p>
+                    </IonLabel>
+                  </IonItem>
+
+                  <IonItem>
+                    <IonIcon 
+                      icon={refreshOutline} 
+                      slot="start" 
+                      color="success"
+                    />
+                    <IonLabel>
+                      <h2>Auto Updates</h2>
+                      <p>✓ App updates automatically in the background</p>
+                    </IonLabel>
+                  </IonItem>
+                </IonList>
+              </IonCardContent>
+            </IonCard>
+
+            {/* PWA Demo Component */}
+            <PWADemo />
           </div>
         </div>
 
