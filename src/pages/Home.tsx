@@ -498,7 +498,7 @@ const Home: React.FC = () => {
                 style={{ 
                   cursor: "pointer", 
                   marginRight: "8px",
-                  color: "#3880ff"
+                  color: "#ffffff"
                 }}
                 title="Install App"
               />
